@@ -12,8 +12,8 @@ import types
 import unittest
 from unittest.mock import patch, Mock
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
+
+from tests.support.paths import ROOT
 
 spec = importlib.util.spec_from_file_location("setup_checker", ROOT / "tools/check_setup.py")
 checker = importlib.util.module_from_spec(spec)

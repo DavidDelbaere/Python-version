@@ -49,28 +49,15 @@ The setup check briefly opens a window to test rendering; omit `--graphics` for
 environment checks only. In a new terminal, activate `.venv` again before running
 `python main.py`.
 
-## macOS troubleshooting
+## Tests
 
-- **Python startup timeout / `init_import_site`:** if the project is in iCloud-synced
-  storage, download it fully, move it outside iCloud, and recreate `.venv`.
-- **Qt plugin errors:** recreate `.venv` outside cloud-synced storage and reinstall
-  dependencies. The checker diagnoses problems without modifying installed libraries.
+```text
+python -m unittest discover -s tests -t . -v
+```
 
-## Project layout
+Rendering tests require a desktop OpenGL display.
 
-- `main.py`: convenience launcher.
-- `src/`: application, startup menu, scene, ray casting, and OpenGL renderer.
-- `Assets/`: sample meshes in `.simuOPart` format.
-- `Images/`: application images.
-- `requirements.txt`: Python runtime dependencies.
-- `tools/check_setup.py`: environment checker and optional graphics test.
-- `tools/check_setup.sh`: macOS wrapper for checking Python startup failures.
-- `tests/`: diagnostic tests, run `python -m unittest discover -s tests -v`.
+## Guides
 
-## Controls
-
-- `W`, `A`, `S`, and `D` move the camera relative to its viewing direction.
-- `Space` moves the camera up.
-- `Control` moves the camera down.
-- Hold the right mouse button and move the mouse to look around.
-- `Escape` closes the application.
+- [Controls and editor panels](docs/controls.md)
+- [Project structure, development, and troubleshooting](docs/development.md)

@@ -1,28 +1,14 @@
-"""Compatibility launcher for the SimuO application.
+"""Source-checkout launcher; the application lives in the simuo package."""
 
-Running the repository root script delegates to the Qt editor entrypoint under
-src/.
-"""
+from pathlib import Path
+import sys
 
-import importlib.util
-import os
+SOURCE_ROOT = Path(__file__).resolve().parent / "src"
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
 
-
-def _load_src_main():
-    """Load the app entrypoint from src/main.py without recursive import loops."""
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    src_main = os.path.join(project_root, "src", "main.py")
-
-    if not os.path.exists(src_main):
-        raise FileNotFoundError(f"Missing launcher: {src_main}")
-
-    spec = importlib.util.spec_from_file_location("simuo_src_main", src_main)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from simuo.app import main
 
 
 if __name__ == "__main__":
-    raise SystemExit(_load_src_main().main())
-
-
+    raise SystemExit(main())

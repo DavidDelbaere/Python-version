@@ -138,8 +138,8 @@ def graphics_probe():
     """Show a small viewport and exercise the application's real shader setup."""
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
-    from main import configure_opengl
-    from renderer import OpenGLViewport
+    from simuo.rendering.context import configure_opengl
+    from simuo.rendering.viewport import OpenGLViewport
 
     configure_opengl()
     app = QApplication([])

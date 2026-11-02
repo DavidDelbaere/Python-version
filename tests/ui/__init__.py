@@ -1,0 +1,1 @@
+"""Ui behavior checks."""

@@ -1,0 +1,1 @@
+"""Editor behavior checks."""
