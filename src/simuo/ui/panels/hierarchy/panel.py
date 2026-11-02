@@ -183,6 +183,9 @@ class HierarchyPanel(QWidget):
         if event.key() == Qt.Key.Key_F and event.modifiers() == Qt.KeyboardModifier.NoModifier:
             self.state.frame_selected()
             event.accept()
+        elif event.key() == Qt.Key.Key_F and event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
+            self.state.frame_scene()
+            event.accept()
         else:
             super().keyPressEvent(event)
 

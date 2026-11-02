@@ -9,6 +9,7 @@ class FakeViewport(QWidget):
 
     object_picked = Signal(object)
     frame_requested = Signal()
+    frame_scene_requested = Signal()
     escape_requested = Signal()
 
     def __init__(self, parent, scene):

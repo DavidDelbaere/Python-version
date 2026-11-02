@@ -126,9 +126,9 @@ class EditorWorkflow(unittest.TestCase):
     def test_toolbar_focuses_properties_and_recovers_hidden_panels(self):
         self.select_second()
         dock = self.window.panel_manager.docks["properties"]
-        for tooltip, attribute in (("Reposition", "position"), ("Set Rotation", "rotation")):
+        for attribute in ("position", "rotation", "scale"):
             dock.hide()
-            next(action for action in self.window.toolActions if action.toolTip() == tooltip).trigger()
+            self.window.transformActions[attribute].trigger()
             self.app.processEvents()
             self.assertTrue(dock.isVisible())
             self.assertIs(dock.focusWidget(), self.properties.transform_inputs[attribute][0])
@@ -137,6 +137,34 @@ class EditorWorkflow(unittest.TestCase):
         self.window.panel_manager.docks["object_hierarchy"].hide()
         self.window.focusProperties("position")
         self.assertTrue(self.window.panel_manager.docks["object_hierarchy"].isVisible())
+
+    def test_viewport_toolbar_tracks_selection_and_has_no_placeholder_modes(self):
+        self.assertFalse(any(action.isEnabled() for action in self.window.transformActions.values()))
+        self.assertFalse(self.window.frameSelectedAction.isEnabled())
+        self.assertTrue(self.window.frameSceneAction.isEnabled())
+        actions = [action for action in self.window.viewport_tools.actions() if action.text()]
+        self.assertEqual([action.text() for action in actions],
+                         ["Edit Position", "Edit Rotation", "Edit Scale", "Frame Selected", "Frame Scene"])
+        self.assertTrue(all(not action.isCheckable() for action in actions))
+        self.select_second()
+        self.assertTrue(all(action.isEnabled() for action in self.window.transformActions.values()))
+        self.assertTrue(self.window.frameSelectedAction.isEnabled())
+        self.window.newProject()
+        self.assertFalse(self.window.frameSceneAction.isEnabled())
+
+    def test_frame_scene_toolbar_and_shortcut_respect_visibility_and_preserve_selection(self):
+        selected = self.select_second()
+        hidden = self.scene.objects[2]
+        self.state.set_visibility(hidden.identifier, False)
+        self.state.mark_saved()
+        for trigger in (self.window.frameSceneAction.trigger, self.window.viewport.frame_scene_requested.emit):
+            trigger()
+            self.assertEqual(self.window.viewport.framed_object, tuple(self.scene.objects[:2]))
+            self.assertIs(self.state.selected_object, selected)
+            self.assertFalse(self.scene.dirty)
+        self.state.isolate_selected()
+        self.window.frameSceneAction.trigger()
+        self.assertIs(self.window.viewport.framed_object, selected)
 
     def test_import_waits_for_explicit_selection(self):
         mesh = ROOT / "Assets/teapot.simuOPart"

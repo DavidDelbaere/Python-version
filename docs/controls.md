@@ -4,7 +4,8 @@
 
 - `W`, `A`, `S`, and `D` move the camera relative to its viewing direction.
 - `Space` moves the camera up.
-- `Control` moves the camera down.
+- `C` moves the camera down. Command/Control/Alt shortcuts stop camera movement
+  and never start it; press a movement key again to resume after a shortcut.
 - Hold the right mouse button and move the mouse to look around.
 - Left-click a mesh in the viewport to select it. A thin blue outline marks the
   selected meshes while preserving their surface shading. Object Hierarchy and
@@ -27,6 +28,8 @@
 - Press `F` with the viewport or hierarchy focused to frame the selected visible
   objects together. Framing keeps the camera's viewing direction and fits them to the
   available viewport size.
+- Press `Shift+F` to frame the visible scene, including while no object is selected.
+  Hidden objects stay excluded, and isolation is respected.
 - With the viewport focused, `Escape` exits isolation first; outside isolation
   it closes the application. When renaming an object or group, Escape cancels
   the unfinished name change.
@@ -39,8 +42,8 @@
   without a popup dialog.
 - Double-click an object's name in the hierarchy to rename it. Importing a model
   leaves the current selection unchanged until you select the new model.
-  Position and rotation toolbar shortcuts bring their
-  matching Properties fields into focus.
+  The left toolbar's Edit Position, Edit Rotation, and Edit Scale actions bring
+  their matching Properties fields into focus; they are disabled without a selection.
 - The hierarchy has a collapsible scene header, compact object rows, and object
   and selection counts. Search filters names without changing the selected
   object; the footer indicates when the selection is filtered out.
@@ -113,3 +116,12 @@
   These preferences are local to the application and are not part of scene files.
 - Modified scenes prompt to save before closing, opening another project, or
   creating a new one. Canceling a save keeps the current scene open.
+
+## Viewport toolbar
+
+- **EDIT:** Position, Rotation, and Scale open the selected objects' transform
+  fields in Properties. These are editing shortcuts, not viewport gizmo modes.
+- **VIEW:** Frame Selected (`F`) fits the selection; Frame Scene (`Shift+F`)
+  fits all visible objects. Both preserve selection and camera orientation.
+- Buttons use tooltips and disable when their action has no target. Selection
+  always works by clicking objects; camera look-around uses the right mouse button.

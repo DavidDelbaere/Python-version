@@ -29,6 +29,7 @@ src/simuo/
 │   ├── docking.py              # Panel containers and saved workspace layout
 │   ├── panel_registry.py       # Available panel factories and stable IDs
 │   ├── theme.py                # Package-resource stylesheet loading
+│   ├── viewport_tools.py       # Transform shortcuts and framing toolbar
 │   └── panels/
 │       ├── properties.py       # Properties form and inspector widgets
 │       └── hierarchy/

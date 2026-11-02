@@ -142,6 +142,11 @@ class EditorState(QObject):
         if visible:
             self.frame_requested.emit(visible[0] if len(visible) == 1 else visible)
 
+    def frame_scene(self):
+        visible = tuple(obj for obj in self.scene.objects if obj.viewport_visible and obj.meshPath is not None)
+        if visible:
+            self.frame_requested.emit(visible[0] if len(visible) == 1 else visible)
+
     def _edit(self, text, updates):
         changes = [(obj, attribute, deepcopy(getattr(obj, attribute)), deepcopy(value))
                    for obj, attribute, value in updates if getattr(obj, attribute) != value]

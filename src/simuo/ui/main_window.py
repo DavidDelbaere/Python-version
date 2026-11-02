@@ -10,7 +10,6 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
-    QToolBar,
     QFileDialog,
     QMessageBox,
     QLineEdit,
@@ -24,6 +23,7 @@ from simuo.ui.docking import PanelManager
 from simuo.editor.state import EditorState
 from simuo.ui.panel_registry import editor_panel_specs
 from simuo.ui.theme import load_stylesheet
+from simuo.ui.viewport_tools import create_viewport_tools
 
 
 class SimuOMainWindow(QMainWindow):
@@ -62,6 +62,7 @@ class SimuOMainWindow(QMainWindow):
         self.viewport.object_picked.connect(self.onViewportPicked)
         self.editor_state.selection_set_changed.connect(self.viewport.set_selected_objects)
         self.viewport.frame_requested.connect(self.editor_state.frame_selected)
+        self.viewport.frame_scene_requested.connect(self.editor_state.frame_scene)
         self.viewport.escape_requested.connect(self.onViewportEscape)
         self.editor_state.frame_requested.connect(self.viewport.frame_object)
 
@@ -128,6 +129,9 @@ class SimuOMainWindow(QMainWindow):
         self.groupAction.setEnabled(selected and not typing)
         self.showSelectedAction.setEnabled(selected)
         self.frameSelectedAction.setEnabled(any(obj.viewport_visible for obj in self.editor_state.selected_objects))
+        self.frameSceneAction.setEnabled(any(obj.viewport_visible and obj.meshPath is not None for obj in self.scene.objects))
+        for action in self.transformActions.values():
+            action.setEnabled(selected)
         self.isolateAction.setEnabled(selected or self.editor_state.isolated_ids is not None)
         self.isolateAction.setChecked(self.editor_state.isolated_ids is not None)
 
@@ -323,6 +327,7 @@ class SimuOMainWindow(QMainWindow):
 
         self.viewMenu = self.menuBar().addMenu("View")
         self.frameSelectedAction = self.viewMenu.addAction("Frame Selected", self.editor_state.frame_selected)
+        self.frameSceneAction = self.viewMenu.addAction("Frame Scene", self.editor_state.frame_scene)
         self.showSelectedAction = self.viewMenu.addAction("Show Selected in Hierarchy", self.showSelectedInHierarchy)
         self.isolateAction = self.viewMenu.addAction("Isolate Selected")
         self.isolateAction.setCheckable(True)
@@ -377,61 +382,10 @@ class SimuOMainWindow(QMainWindow):
     # ---------------------------------------------------------
 
     def createToolbar(self):
-        """Create the left-side tool bar with editing actions."""
-
-        toolbar = QToolBar("Tools", self)
-        toolbar.setObjectName("editor.tools")
-
-        toolbar.setMovable(False)
-
-        self.addToolBar(Qt.LeftToolBarArea, toolbar)
-
-        self.toolActions = []
-
-        tools = [
-            ("Select", "➤"),
-            ("Reposition", "⇄"),
-            ("Set Rotation", "⤾"),
-            ("Pan", "✋"),
-            ("Rotate", "⟳"),
-            ("Move", "✥"),
-        ]
-
-        for index, (name, symbol) in enumerate(tools):
-            action = QAction(symbol, self)
-
-            action.setToolTip(name)
-
-            action.setCheckable(True)
-
-            action.triggered.connect(lambda checked, n=name: self.toolSelected(n))
-
-            toolbar.addAction(action)
-
-            self.toolActions.append(action)
-
-            if index == 0:
-                action.setChecked(True)
-
-    def toolSelected(self, name):
-        """Handle a toolbar tool selection.
-
-        Args:
-            name: Name of the selected tool.
-        """
-
-        sender = self.sender()
-
-        for action in self.toolActions:
-            action.setChecked(action is sender)
-
-        print("Selected tool:", name)
-
-        if name == "Reposition":
-            self.focusProperties("position")
-
-        if name == "Set Rotation":
-            self.focusProperties("rotation")
+        """Offer real actions rather than unimplemented, mutually exclusive modes."""
+        self.viewport_tools, self.transformActions = create_viewport_tools(
+            self, self.focusProperties, self.frameSelectedAction, self.frameSceneAction,
+        )
 
     def focusProperties(self, attribute):
         """Bring an existing inspector into view instead of opening a dialog."""

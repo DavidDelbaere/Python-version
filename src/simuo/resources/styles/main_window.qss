@@ -57,31 +57,6 @@ QMenu::item:selected {
     background-color: #444444;
 }
 
-QToolBar {
-    background-color: #292929;
-    border: none;
-    spacing: 6px;
-    padding: 8px;
-}
-
-QToolBar QToolButton {
-    color: white;
-    background-color: #343434;
-    border: 1px solid #666666;
-    border-radius: 3px;
-    min-width: 34px;
-    min-height: 34px;
-    font-size: 17px;
-}
-
-QToolBar QToolButton:hover {
-    background-color: #484848;
-}
-
-QToolBar QToolButton:checked {
-    background-color: #595959;
-}
-
 QDialog {
     background-color: #2b2b2b;
     color: white;

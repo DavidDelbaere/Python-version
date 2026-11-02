@@ -53,7 +53,7 @@ class ApplicationPackaging(unittest.TestCase):
         self.assertTrue(any(pixmap is not None and not pixmap.isNull() for pixmap in pixmaps))
         package = resources.files("simuo.resources")
         self.assertTrue(package.joinpath("images", "simuo_logo.png").is_file())
-        for name in ("startup", "main_window", "hierarchy", "properties"):
+        for name in ("startup", "main_window", "hierarchy", "properties", "viewport_tools"):
             self.assertTrue(load_stylesheet(name).strip())
 
     def test_theme_resources_do_not_depend_on_the_current_directory(self):

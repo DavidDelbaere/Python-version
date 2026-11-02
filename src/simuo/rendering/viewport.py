@@ -36,7 +36,7 @@ class OpenGLViewport(QOpenGLWidget):
     Keyboard movement is relative to the current camera orientation:
     - W/S move along the camera's forward vector
     - A/D strafe left/right along the camera's right vector
-    - Space/Ctrl move vertically along the world's up vector
+    - Space/C move vertically along the world's up vector
 
     Mouse interaction is used for looking around the scene. While the right mouse
     button is held, the cursor is recentered inside the widget so the user can
@@ -47,7 +47,12 @@ class OpenGLViewport(QOpenGLWidget):
 
     object_picked = Signal(object)
     frame_requested = Signal()
+    frame_scene_requested = Signal()
     escape_requested = Signal()
+
+    CAMERA_KEYS = frozenset((Qt.Key_W, Qt.Key_A, Qt.Key_S, Qt.Key_D, Qt.Key_Space, Qt.Key_C))
+    SHORTCUT_KEYS = frozenset((Qt.Key_Control, Qt.Key_Meta, Qt.Key_Alt, Qt.Key_AltGr))
+    SHORTCUT_MODIFIERS = Qt.ControlModifier | Qt.MetaModifier | Qt.AltModifier | Qt.GroupSwitchModifier
 
     def __init__(
         self,
@@ -913,7 +918,7 @@ class OpenGLViewport(QOpenGLWidget):
                 * speed
             )
 
-        if Qt.Key_Control in self.keys:
+        if Qt.Key_C in self.keys:
             self.camera.position -= (
                 self.camera.world_up
                 * speed
@@ -938,18 +943,32 @@ class OpenGLViewport(QOpenGLWidget):
         Args:
             event: Qt keyboard event.
         """
-        # Add the pressed key to the active input set.
+        # Selection modifiers and editor shortcuts must never start (or keep)
+        # camera movement. Qt maps the macOS Command key to Key_Control.
+        if event.key() in self.SHORTCUT_KEYS or event.modifiers() & self.SHORTCUT_MODIFIERS:
+            self.keys.clear()
+            event.ignore()
+            return
+        if event.isAutoRepeat():
+            event.accept()
+            return
         if event.key() == Qt.Key_F and event.modifiers() == Qt.NoModifier:
             self.frame_requested.emit()
+            event.accept()
+            return
+        if event.key() == Qt.Key_F and event.modifiers() == Qt.ShiftModifier:
+            self.frame_scene_requested.emit()
             event.accept()
             return
         if event.key() == Qt.Key_Escape:
             self.escape_requested.emit()
             event.accept()
             return
-        self.keys.add(
-            event.key()
-        )
+        if event.key() in self.CAMERA_KEYS:
+            self.keys.add(event.key())
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
     def keyReleaseEvent(
         self,
@@ -960,7 +979,9 @@ class OpenGLViewport(QOpenGLWidget):
         Args:
             event: Qt keyboard event.
         """
-        # Remove the released key from the active input set.
+        if event.isAutoRepeat():
+            return
+        # Shortcut letters stay unarmed until pressed again without modifiers.
         self.keys.discard(
             event.key()
         )
@@ -976,6 +997,8 @@ class OpenGLViewport(QOpenGLWidget):
         Args:
             event: Qt mouse event.
         """
+        if event.modifiers() & self.SHORTCUT_MODIFIERS:
+            self.keys.clear()
         if event.button() == Qt.LeftButton:
             if self.right_mouse_down:
                 return
