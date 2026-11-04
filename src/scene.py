@@ -5,6 +5,19 @@ from part_format import number, vector
 
 
 class SceneObject:
+    """Represent a single mesh instance inside the simulation scene.
+
+        Attributes:
+            name: Human-readable label for the object.
+            meshPath: Path to the OBJ model used by this object.
+            position: [x, y, z] world position.
+            rotation: [x, y, z] Euler rotation in degrees.
+            scale: [x, y, z] scale factors.
+            velocity: Current linear velocity.
+            acceleration: Current linear acceleration.
+            angularVelocity: Current rotational velocity.
+        """
+
     def __init__(self, name="Object", meshPath=None):
         """Initialize instance transform and motion state, optionally loading an asset and
         applying its spawn position, velocity, and default name.
@@ -184,6 +197,8 @@ class SceneObject:
 
 
 class Scene:
+    """Container for all objects in the active simulation scene."""
+
     def __init__(self):
         """Initialize an empty scene with no filepath and no unsaved-change flag.
 

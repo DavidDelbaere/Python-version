@@ -1,3 +1,8 @@
+"""Custom startup menu for the SimuO application.
+
+This module provides the modal welcome dialog used before a new project or an
+existing project is opened.
+"""
 from pathlib import Path
 
 import customtkinter as ctk
@@ -7,6 +12,8 @@ from resources import resource_path
 
 
 class SimuOStartMenu(ctk.CTkToplevel):
+
+    """Modal window that lets the user start a new scene or import an existing one."""
 
     def __init__(
         self,

@@ -21,19 +21,19 @@ Signatures list inputs; behavior and output summarize the source docstrings. Ful
 
 | Function / parameters | Behavior and output |
 | --- | --- |
-| [`SimuOStartMenu.__init__(parent, logo_path=None, on_new=None, on_import=None, title='SimuO', width=520, height=710, on_new_part=None, on_open_part=None)`](../../src/startMenu.py#L11) | Build a fixed-size startup chooser with optional logo and scene/part action callbacks. **Output:** None. Creates a Tk toplevel and schedules centering and modal capture after mapping. |
-| [`SimuOStartMenu._grab_when_visible(event)`](../../src/startMenu.py#L83) | Acquire modal input capture only once this startup toplevel is mapped and viewable. **Output:** None. Ignores map events from child widgets. |
-| [`SimuOStartMenu._build_ui(logo_path)`](../../src/startMenu.py#L97) | Create the logo/title panel and scene/part buttons, falling back to a text logo if no image exists. **Output:** None. Builds and packs child widgets. |
-| [`SimuOStartMenu._new_part()`](../../src/startMenu.py#L311) | Close the chooser and invoke the optional no-argument new-part callback. **Output:** None. Calls the callback only if supplied. |
-| [`SimuOStartMenu._open_part()`](../../src/startMenu.py#L322) | Prompt for a part file, then close the chooser and invoke its optional open-part callback. **Output:** None. Cancellation leaves the chooser open. |
-| [`SimuOStartMenu._build_text_logo(parent)`](../../src/startMenu.py#L337) | Create a styled text placeholder when the image logo is unavailable. **Output:** None. Packs a label into the supplied parent. |
-| [`SimuOStartMenu._center_on_screen()`](../../src/startMenu.py#L375) | Calculate screen-centered geometry using configured startup-window dimensions. **Output:** None. Moves and sizes the toplevel after idle layout. |
-| [`SimuOStartMenu._new_project()`](../../src/startMenu.py#L410) | Close the chooser and invoke the optional no-argument new-scene callback. **Output:** None. |
-| [`SimuOStartMenu._import_project()`](../../src/startMenu.py#L425) | Prompt for a scene file, then close the chooser and pass its path to the optional import callback. **Output:** None. Cancellation leaves the chooser open. |
-| [`SimuOStartMenu._close()`](../../src/startMenu.py#L463) | Release modal capture if possible and destroy the startup toplevel. **Output:** None. Suppresses capture-release errors during closure. |
-| [`showStartMenu(parent, logo_path=None, on_new=None, on_import=None, on_new_part=None, on_open_part=None)`](../../src/startMenu.py#L479) | Construct a startup chooser attached to the supplied Tk parent. **Output:** SimuOStartMenu: New chooser window; this helper does not start or wait on an event loop. |
-| [`new_project()`](../../src/startMenu.py#L540) | Print the new-scene selection for the standalone menu preview. **Output:** None. Writes preview feedback to stdout. |
-| [`import_project(filepath)`](../../src/startMenu.py#L552) | Print the imported scene path for the standalone menu preview. **Output:** None. Writes preview feedback to stdout. |
+| [`SimuOStartMenu.__init__(parent, logo_path=None, on_new=None, on_import=None, title='SimuO', width=520, height=710, on_new_part=None, on_open_part=None)`](../../src/startMenu.py#L18) | Build a fixed-size startup chooser with optional logo and scene/part action callbacks. **Output:** None. Creates a Tk toplevel and schedules centering and modal capture after mapping. |
+| [`SimuOStartMenu._grab_when_visible(event)`](../../src/startMenu.py#L90) | Acquire modal input capture only once this startup toplevel is mapped and viewable. **Output:** None. Ignores map events from child widgets. |
+| [`SimuOStartMenu._build_ui(logo_path)`](../../src/startMenu.py#L104) | Create the logo/title panel and scene/part buttons, falling back to a text logo if no image exists. **Output:** None. Builds and packs child widgets. |
+| [`SimuOStartMenu._new_part()`](../../src/startMenu.py#L318) | Close the chooser and invoke the optional no-argument new-part callback. **Output:** None. Calls the callback only if supplied. |
+| [`SimuOStartMenu._open_part()`](../../src/startMenu.py#L329) | Prompt for a part file, then close the chooser and invoke its optional open-part callback. **Output:** None. Cancellation leaves the chooser open. |
+| [`SimuOStartMenu._build_text_logo(parent)`](../../src/startMenu.py#L344) | Create a styled text placeholder when the image logo is unavailable. **Output:** None. Packs a label into the supplied parent. |
+| [`SimuOStartMenu._center_on_screen()`](../../src/startMenu.py#L382) | Calculate screen-centered geometry using configured startup-window dimensions. **Output:** None. Moves and sizes the toplevel after idle layout. |
+| [`SimuOStartMenu._new_project()`](../../src/startMenu.py#L417) | Close the chooser and invoke the optional no-argument new-scene callback. **Output:** None. |
+| [`SimuOStartMenu._import_project()`](../../src/startMenu.py#L432) | Prompt for a scene file, then close the chooser and pass its path to the optional import callback. **Output:** None. Cancellation leaves the chooser open. |
+| [`SimuOStartMenu._close()`](../../src/startMenu.py#L470) | Release modal capture if possible and destroy the startup toplevel. **Output:** None. Suppresses capture-release errors during closure. |
+| [`showStartMenu(parent, logo_path=None, on_new=None, on_import=None, on_new_part=None, on_open_part=None)`](../../src/startMenu.py#L486) | Construct a startup chooser attached to the supplied Tk parent. **Output:** SimuOStartMenu: New chooser window; this helper does not start or wait on an event loop. |
+| [`new_project()`](../../src/startMenu.py#L547) | Print the new-scene selection for the standalone menu preview. **Output:** None. Writes preview feedback to stdout. |
+| [`import_project(filepath)`](../../src/startMenu.py#L559) | Print the imported scene path for the standalone menu preview. **Output:** None. Writes preview feedback to stdout. |
 
 ## Existing checks
 

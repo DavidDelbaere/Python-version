@@ -19,7 +19,7 @@ For the end-to-end part architecture, see [SimuOPart](Backend/SimuOPart.md).
 | [src/feature_editor.py](../src/feature_editor.py) | [Frontend](Frontend/feature_editor.md) | [Backend](Backend/feature_editor.md) |
 | [src/feature_geometry.py](../src/feature_geometry.py) | — | [Backend](Backend/feature_geometry.md) |
 | [src/main.py](../src/main.py) | [Frontend](Frontend/main.md) | — |
-| [src/main.spec](../src/main.spec) | — | [Backend](Backend/main.spec.md) |
+| [src/main.spec](../src/main.spec) | — | [Build instructions](../README.md#build-an-executable-optional) |
 | [src/part_assets.py](../src/part_assets.py) | — | [Backend](Backend/part_assets.md) |
 | [src/part_document.py](../src/part_document.py) | — | [Backend](Backend/part_document.md) |
 | [src/part_editor.py](../src/part_editor.py) | [Frontend](Frontend/part_editor.md) | [Backend](Backend/part_editor.md) |
@@ -30,6 +30,7 @@ For the end-to-end part architecture, see [SimuOPart](Backend/SimuOPart.md).
 | [src/physics_world.py](../src/physics_world.py) | — | [Backend](Backend/physics_world.md) |
 | [src/project_paths.py](../src/project_paths.py) | — | [Backend](Backend/project_paths.md) |
 | [src/properties_dialog.py](../src/properties_dialog.py) | [Frontend](Frontend/properties_dialog.md) | — |
+| [src/ray.py](../src/ray.py) | — | [Backend](Backend/ray.md) |
 | [src/renderer.py](../src/renderer.py) | [Frontend](Frontend/renderer.md) | [Backend](Backend/renderer.md) |
 | [src/resources.py](../src/resources.py) | — | [Backend](Backend/resources.md) |
 | [src/scene.py](../src/scene.py) | — | [Backend](Backend/scene.md) |

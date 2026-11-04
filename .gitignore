@@ -11,3 +11,15 @@ src/main
 *.egg-info/
 .DS_Store
 *.pyc
+venv/
+*.so
+*.pyd
+*.o
+*.pdb
+*.exp
+*.lib
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.vscode/

@@ -24,12 +24,12 @@ Signatures list inputs; behavior and output summarize the source docstrings. Ful
 
 | Function / parameters | Behavior and output |
 | --- | --- |
-| [`startup_menu()`](../../src/main.py#L18) | Run the modal Tk startup chooser and destroy its hidden root after selection or closure. **Output:** tuple: (action, filepath), with None values when no action/path was chosen. |
-| [`startup_menu.new_project()`](../../src/main.py#L34) | Record the startup choice to create an empty scene in the enclosing result dictionary. **Output:** None. Mutates captured startup state. |
-| [`startup_menu.import_project(filepath)`](../../src/main.py#L43) | Record the chosen scene path and import action in the enclosing startup state. **Output:** None. Mutates captured startup state. |
-| [`startup_menu.new_part()`](../../src/main.py#L55) | Record the startup choice to create a new editable part. **Output:** None. Mutates captured startup state. |
-| [`startup_menu.open_part(filepath)`](../../src/main.py#L63) | Record the chosen part path and open-part action in the enclosing startup state. **Output:** None. Mutates captured startup state. |
-| [`main()`](../../src/main.py#L97) | Parse command-line options, choose the scene/part editor or startup menu, and start the selected application. **Output:** int or None: Editor event-loop exit code, or None if the startup chooser was closed without a selection. |
+| [`startup_menu()`](../../src/main.py#L29) | Run the modal Tk startup chooser and destroy its hidden root after selection or closure. **Output:** tuple: (action, filepath), with None values when no action/path was chosen. |
+| [`startup_menu.new_project()`](../../src/main.py#L45) | Record the startup choice to create an empty scene in the enclosing result dictionary. **Output:** None. Mutates captured startup state. |
+| [`startup_menu.import_project(filepath)`](../../src/main.py#L54) | Record the chosen scene path and import action in the enclosing startup state. **Output:** None. Mutates captured startup state. |
+| [`startup_menu.new_part()`](../../src/main.py#L66) | Record the startup choice to create a new editable part. **Output:** None. Mutates captured startup state. |
+| [`startup_menu.open_part(filepath)`](../../src/main.py#L74) | Record the chosen part path and open-part action in the enclosing startup state. **Output:** None. Mutates captured startup state. |
+| [`main()`](../../src/main.py#L108) | Parse command-line options, choose the scene/part editor or startup menu, and start the selected application. **Output:** int or None: Editor event-loop exit code, or None if the startup chooser was closed without a selection. |
 
 ## Existing checks
 

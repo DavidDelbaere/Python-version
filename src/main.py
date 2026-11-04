@@ -1,3 +1,8 @@
+"""Entry point for the SimuO application.
+
+This module decides whether the user starts a new scene or imports an existing
+one, then launches the main window.
+"""
 
 import argparse
 import os
@@ -8,6 +13,12 @@ from pathlib import Path
 # Respect an explicitly selected Qt backend.
 if sys.platform.startswith("linux") and os.environ.get("DISPLAY"):
     os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+
+# Also support callers that load this entry point through importlib.
+if __package__ in (None, ""):
+    src_dir = str(Path(__file__).resolve().parent)
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
 
 import customtkinter as ctk
 from startMenu import showStartMenu

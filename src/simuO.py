@@ -1,3 +1,8 @@
+"""Main application window and editor logic for SimuO.
+
+This module assembles the Qt interface, manages project loading/saving, and
+provides scene-editing dialogs for object positioning and rotation.
+"""
 import sys
 from pathlib import Path
 import json
@@ -30,6 +35,8 @@ from properties_dialog import PropertiesDialog
 
 
 class SimuOMainWindow(QMainWindow):
+    """Primary editor window for the SimuO scene editor."""
+
     def __init__(self, projectPath=None, scene=None):
         """Build the scene editor, viewport, menus, temporary-part panel, and child-window
         registries; optionally load a project before GL initialization.
@@ -1268,6 +1275,8 @@ class SimuOMainWindow(QMainWindow):
 
 
 class App:
+    """Top-level application launcher for SimuO."""
+
     def __init__(self, projectPath=None, scene=None):
 
         """Store an optional project path and scene, creating an empty scene when omitted.

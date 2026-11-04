@@ -1,3 +1,8 @@
+"""OpenGL rendering pipeline for the SimuO 3D editor.
+
+This module loads OBJ meshes, builds transformation matrices, and renders scene
+objects in a Qt-based OpenGL viewport.
+"""
 import math
 import time
 import ctypes
@@ -12,8 +17,34 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtGui import QCursor
 
+from ray import Ray
 from part_assets import loadObjFlatShaded  # Compatibility export for existing callers
 
+
+DEBUG_RAY_VERTEX_SHADER = """
+#version 330 core
+
+layout (location = 0) in vec3 in_position;
+
+uniform mat4 view;
+uniform mat4 projection;
+
+void main()
+{
+    gl_Position = projection * view * vec4(in_position, 1.0);
+}
+"""
+
+DEBUG_RAY_FRAGMENT_SHADER = """
+#version 330 core
+
+out vec4 frag_color;
+
+void main()
+{
+    frag_color = vec4(1.0, 0.15, 0.15, 1.0);
+}
+"""
 
 AXIS_VERTEX_SHADER = """
 #version 330 core
@@ -320,6 +351,33 @@ class Camera:
         )
 
 
+    def mouse_ray(self, event, width, height, projection, view):
+        """Unproject a pointer location into a normalized world-space camera ray.
+
+        Args:
+            event: Qt mouse event with a widget-local position in logical pixels.
+            width: Positive viewport width in logical pixels.
+            height: Positive viewport height in logical pixels.
+            projection: Perspective projection matrix matching the rendered view.
+            view: Camera world-to-view matrix.
+
+        Returns:
+            tuple: Camera origin and normalized direction as glm.vec3 values.
+        """
+        x_ndc = 2.0 * event.position().x() / width - 1.0
+        y_ndc = 1.0 - 2.0 * event.position().y() / height
+        clip = np.array([x_ndc, y_ndc, -1.0, 1.0], dtype=np.float32)
+        inv_projection = np.linalg.inv(np.array(projection, dtype=np.float32))
+        near = inv_projection @ clip
+        near = near / near[3]
+        inv_view = np.linalg.inv(np.array(view, dtype=np.float32))
+        near_world = inv_view @ near
+        near_world = near_world[:3]
+        origin = self.position
+        direction = glm.normalize(glm.vec3(near_world) - origin)
+        return (origin, direction)
+
+
 class OpenGLViewport(QOpenGLWidget):
     def __init__(
         self,
@@ -343,6 +401,10 @@ class OpenGLViewport(QOpenGLWidget):
             None.
         """
         self.axisShader = None
+        self.debugRayShader = None
+        self.debug_ray = None
+        self.debug_ray_vao = None
+        self.debug_ray_vbo = None
         self.axisVAO = None
         self.axisVBO = None
         self.axisVertexCount = 0
@@ -656,6 +718,14 @@ class OpenGLViewport(QOpenGLWidget):
         print(
             "OpenGL viewport initialized"
         )
+
+        self.debugRayShader = compileProgram(
+            compileShader(DEBUG_RAY_VERTEX_SHADER, GL_VERTEX_SHADER),
+            compileShader(DEBUG_RAY_FRAGMENT_SHADER, GL_FRAGMENT_SHADER),
+        )
+        if self.debug_ray_vao is None:
+            self.debug_ray_vao = glGenVertexArrays(1)
+            self.debug_ray_vbo = glGenBuffers(1)
         
 
     def resizeGL(
@@ -969,6 +1039,21 @@ class OpenGLViewport(QOpenGLWidget):
             0
         )
 
+        if self.debug_ray is not None:
+            glUseProgram(self.debugRayShader)
+            debugViewLocation = glGetUniformLocation(self.debugRayShader, 'view')
+            debugProjectionLocation = glGetUniformLocation(self.debugRayShader, 'projection')
+            glUniformMatrix4fv(debugViewLocation, 1, GL_FALSE, glm.value_ptr(view))
+            glUniformMatrix4fv(debugProjectionLocation, 1, GL_FALSE, glm.value_ptr(projection))
+            glBindVertexArray(self.debug_ray_vao)
+            glBindBuffer(GL_ARRAY_BUFFER, self.debug_ray_vbo)
+            glBufferData(GL_ARRAY_BUFFER, self.debug_ray.nbytes, self.debug_ray, GL_DYNAMIC_DRAW)
+            glEnableVertexAttribArray(0)
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * self.debug_ray.itemsize, ctypes.c_void_p(0))
+            glDrawArrays(GL_LINES, 0, 2)
+            glBindVertexArray(0)
+            glUseProgram(0)
+
 
 
 
@@ -1098,24 +1183,26 @@ class OpenGLViewport(QOpenGLWidget):
         super().focusOutEvent(event)
 
     def mousePressEvent(self, event):
-        """Begin captured right-button mouse look, hide the cursor, and recenter the
-        pointer.
+        """Draw a debug ray on left click or begin captured mouse look on right click.
 
         Args:
-            event (Qt event): Input, paint, resize, focus, or close event delivered by
-                the framework.
+            event: Qt mouse event with local pixel coordinates and a button value.
 
         Returns:
-            None. Updates capture and synthetic-center-event state.
+            None. Queues a ray repaint or captures/hides and recenters the pointer.
         """
-        if event.button() == Qt.RightButton:
+        if event.button() == Qt.LeftButton:
+            width, height = max(1, self.width()), max(1, self.height())
+            projection = glm.perspective(glm.radians(60.0), width / height, 0.1, 1000.0)
+            origin, direction = self.camera.mouse_ray(
+                event, width, height, projection, self.camera.view_matrix()
+            )
+            self.RenderRay(origin, direction, 100.0)
+        elif event.button() == Qt.RightButton:
             self.right_mouse_down = True
-
             self.setCursor(Qt.BlankCursor)
-
             self.grabMouse()
             self.setFocus()
-
             self.ignore_center_event = True
             self.center_mouse()
     def mouseReleaseEvent(self, event):
@@ -1201,4 +1288,22 @@ class OpenGLViewport(QOpenGLWidget):
         QCursor.setPos(
             global_center
         )
+
+
+
+    def RenderRay(self, position, direction, length=100.0):
+        """Queue a world-space ray visualization for the next frame.
+
+        Args:
+            position: World XYZ ray origin in metres.
+            direction: World XYZ direction; camera rays are normalized.
+            length: Distance parameter in metres for a normalized direction.
+
+        Returns:
+            Ray: Queued ray; also updates float32 line data and requests repaint.
+        """
+        ray = Ray(position, direction)
+        self.debug_ray = ray.render(length)
+        self.update()
+        return ray
         

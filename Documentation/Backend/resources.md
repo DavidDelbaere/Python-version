@@ -28,4 +28,4 @@ Signatures list inputs; behavior and output summarize the source docstrings. Ful
 
 ## Related documentation
 
-[main](../Frontend/main.md), [startMenu](../Frontend/startMenu.md), [project_paths](project_paths.md), [main.spec](main.spec.md).
+[main](../Frontend/main.md), [startMenu](../Frontend/startMenu.md), [project_paths](project_paths.md), [main.spec](../../src/main.spec).
