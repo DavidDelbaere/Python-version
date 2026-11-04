@@ -30,6 +30,7 @@ For the end-to-end part architecture, see [SimuOPart](Backend/SimuOPart.md).
 | [src/physics_world.py](../src/physics_world.py) | — | [Backend](Backend/physics_world.md) |
 | [src/project_paths.py](../src/project_paths.py) | — | [Backend](Backend/project_paths.md) |
 | [src/properties_dialog.py](../src/properties_dialog.py) | [Frontend](Frontend/properties_dialog.md) | — |
+| [src/mover.py](../src/mover.py) | — | [Backend](Backend/mover.md) |
 | [src/ray.py](../src/ray.py) | — | [Backend](Backend/ray.md) |
 | [src/renderer.py](../src/renderer.py) | [Frontend](Frontend/renderer.md) | [Backend](Backend/renderer.md) |
 | [src/resources.py](../src/resources.py) | — | [Backend](Backend/resources.md) |

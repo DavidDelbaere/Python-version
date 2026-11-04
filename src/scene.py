@@ -41,6 +41,8 @@ class SceneObject:
         self.position = [0.0, 0.0, 0.0]
         self.rotation = [0.0, 0.0, 0.0]
         self.scale = [1.0, 1.0, 1.0]
+        self.localMin = None
+        self.localMax = None
 
     # -------------------------------------------------
     # Dynamic Properties
@@ -57,6 +59,9 @@ class SceneObject:
         if meshPath is not None:
             self.asset = load_asset(meshPath)
             self.part = self.asset.part
+            points = self.asset.vertices.reshape(-1, 6)[:, :3]
+            self.localMin = points.min(axis=0)
+            self.localMax = points.max(axis=0)
             if self.part is not None:
                 self.position = list(self.part.position)
                 self.velocity = list(self.part.velocity)

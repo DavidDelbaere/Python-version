@@ -2,17 +2,18 @@
 
 Source: [src/ray.py](../../src/ray.py). [Documentation index](../README.md).
 
-`Ray` stores an origin and direction as NumPy float32 vectors. It supports camera-ray visualization in the scene viewport; it does not implement scene selection, intersections, or physics collision detection.
+`Ray` stores an origin and direction as float32 vectors, produces line data, and finds the nearest forward triangle hit. `at(t)` evaluates the original parameterized ray; `render(t=100.0)` returns six floats for its line endpoints.
 
-| Function / property | Inputs and output |
-| --- | --- |
-| `Ray(position, direction)` | Three-component vectors; stores them as float32 arrays without normalizing the direction. |
-| `position`, `direction` | Expose the stored arrays. |
-| `at(t)` | Returns `position + direction * t`. Distance is in metres when the direction is normalized. |
-| `render(t=100.0)` | Returns six float32 values describing the line's start and end, suitable for GL_LINES. |
-| `RayPosition(position)`, `Direction(direction)` | Compatibility helpers returning their argument unchanged. |
-| `checkCollisions()` | Reserved placeholder; currently returns None and performs no checks. |
+## Picking contract
 
-`Camera.mouse_ray()` unprojects a pointer position and returns a normalized world-space direction. `OpenGLViewport.RenderRay()` stores its line data and requests a repaint; the viewport creates the line shader and GPU buffers in its GL initialization callback.
+`checkCollisions(objects)` accepts a SceneObject, a `.obj`/`.simuOPart` path at the local origin, or an iterable of those targets. It returns None on a miss, or a dictionary with `object`, world-space `point`, world-space `distance`, the original ray parameter `t`, and `triangleIndex`.
 
-See [frontend camera/rendering](../Frontend/renderer.md), [backend GPU rendering](renderer.md), and [test_rays.py](../../Testing/Developer_Tests/test_rays.py).
+- Loaded instances use their CPU `asset.vertices`, matching the currently rendered mesh even if its source file changes or is removed.
+- Direct file targets use a stat-keyed triangle cache. OBJ-style faces and JSON box/sketch/feature definitions are supported.
+- Instance transforms follow the renderer's `T * Rx * Ry * Rz * S` order. Both triangle sides, edges, and origins inside a mesh are supported.
+- Picking validates finite three-component ray vectors and rejects zero direction. It normalizes internally, then adjusts `t` for the original direction length.
+- This is visual triangle picking, separate from Bullet physics collision shapes. Use it for pointer interaction rather than every render frame.
+
+`Camera.mouse_ray()` returns a normalized world-space camera ray. `OpenGLViewport` gives existing movement arrows priority, otherwise calls `checkCollisions()` to select a part and attach a `Mover`.
+
+See [movement geometry](mover.md), [frontend interaction](../Frontend/renderer.md), [backend rendering](renderer.md), [collision checks](../../Testing/Developer_Tests/test_ray.py), and [camera-ray checks](../../Testing/Developer_Tests/test_rays.py).

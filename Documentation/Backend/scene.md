@@ -26,18 +26,18 @@ Signatures list inputs; behavior and output summarize the source docstrings. Ful
 | Function / parameters | Behavior and output |
 | --- | --- |
 | [`SceneObject.__init__(name='Object', meshPath=None)`](../../src/scene.py#L21) | Initialize instance transform and motion state, optionally loading an asset and applying its spawn position, velocity, and default name. **Output:** None. |
-| [`SceneObject.setPosition(x, y, z)`](../../src/scene.py#L70) | Replace the instance's XYZ position without validating or marking its scene dirty. **Output:** None. Stores a new position list. |
-| [`SceneObject.setRotation(x, y, z)`](../../src/scene.py#L84) | Replace the instance's Euler angles without validating or marking its scene dirty. **Output:** None. Stores a new rotation list; rendering uses Rx * Ry * Rz. |
-| [`SceneObject.setVelocity(x, y, z)`](../../src/scene.py#L98) | Replace the instance's starting linear velocity without validation. **Output:** None. Stores a new velocity list. |
-| [`SceneObject.restitution()`](../../src/scene.py#L112) | Resolve bounce from the instance override, then the part default, then the legacy default. **Output:** float: Effective restitution, defaulting to 0 for legacy meshes. |
-| [`SceneObject.restitution.setter(value)`](../../src/scene.py#L124) | Validate and store an instance bounce override without changing the part definition. **Output:** None. Raises ValueError for values outside [0, 1] or non-finite numbers. |
-| [`SceneObject.body_type()`](../../src/scene.py#L137) | Resolve body behavior from the instance override or part definition. **Output:** str: dynamic or static; legacy meshes default to static. |
-| [`SceneObject.body_type.setter(value)`](../../src/scene.py#L148) | Store a validated instance body-type override. **Output:** None. Raises ValueError unless the value is dynamic or static. |
-| [`SceneObject.setPhysicsProperties(bounce, velocity, body_type=None)`](../../src/scene.py#L161) | Validate all requested physics edits before applying instance overrides and velocity. Does not mark the containing scene dirty. **Output:** None. Updates bounce, velocity, and optional body type; validation failures leave state unchanged. |
-| [`SceneObject.setAcceleration(x, y, z)`](../../src/scene.py#L184) | Replace the instance's additional acceleration without validation. **Output:** None. Stores a new acceleration list used as force divided by mass during physics. |
-| [`Scene.__init__()`](../../src/scene.py#L202) | Initialize an empty scene with no filepath and no unsaved-change flag. **Output:** None. |
-| [`Scene.addObject(obj)`](../../src/scene.py#L212) | Append an object without uploading GPU data or marking the scene dirty. **Output:** None. Mutates the scene's objects list. |
-| [`Scene.sceneHasObjects()`](../../src/scene.py#L223) | Check whether any scene object exists. **Output:** bool: True when objects is nonempty. |
+| [`SceneObject.setPosition(x, y, z)`](../../src/scene.py#L75) | Replace the instance's XYZ position without validating or marking its scene dirty. **Output:** None. Stores a new position list. |
+| [`SceneObject.setRotation(x, y, z)`](../../src/scene.py#L89) | Replace the instance's Euler angles without validating or marking its scene dirty. **Output:** None. Stores a new rotation list; rendering uses Rx * Ry * Rz. |
+| [`SceneObject.setVelocity(x, y, z)`](../../src/scene.py#L103) | Replace the instance's starting linear velocity without validation. **Output:** None. Stores a new velocity list. |
+| [`SceneObject.restitution()`](../../src/scene.py#L117) | Resolve bounce from the instance override, then the part default, then the legacy default. **Output:** float: Effective restitution, defaulting to 0 for legacy meshes. |
+| [`SceneObject.restitution.setter(value)`](../../src/scene.py#L129) | Validate and store an instance bounce override without changing the part definition. **Output:** None. Raises ValueError for values outside [0, 1] or non-finite numbers. |
+| [`SceneObject.body_type()`](../../src/scene.py#L142) | Resolve body behavior from the instance override or part definition. **Output:** str: dynamic or static; legacy meshes default to static. |
+| [`SceneObject.body_type.setter(value)`](../../src/scene.py#L153) | Store a validated instance body-type override. **Output:** None. Raises ValueError unless the value is dynamic or static. |
+| [`SceneObject.setPhysicsProperties(bounce, velocity, body_type=None)`](../../src/scene.py#L166) | Validate all requested physics edits before applying instance overrides and velocity. Does not mark the containing scene dirty. **Output:** None. Updates bounce, velocity, and optional body type; validation failures leave state unchanged. |
+| [`SceneObject.setAcceleration(x, y, z)`](../../src/scene.py#L189) | Replace the instance's additional acceleration without validation. **Output:** None. Stores a new acceleration list used as force divided by mass during physics. |
+| [`Scene.__init__()`](../../src/scene.py#L207) | Initialize an empty scene with no filepath and no unsaved-change flag. **Output:** None. |
+| [`Scene.addObject(obj)`](../../src/scene.py#L217) | Append an object without uploading GPU data or marking the scene dirty. **Output:** None. Mutates the scene's objects list. |
+| [`Scene.sceneHasObjects()`](../../src/scene.py#L228) | Check whether any scene object exists. **Output:** bool: True when objects is nonempty. |
 
 ## Existing checks
 

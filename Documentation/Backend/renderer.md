@@ -27,13 +27,13 @@ Signatures list inputs; behavior and output summarize the source docstrings. Ful
 
 | Function / parameters | Behavior and output |
 | --- | --- |
-| [`OpenGLViewport.clearRenderObjects()`](../../src/renderer.py#L463) | Acquire the GL context, delete all uploaded object VAOs/VBOs, clear render records, and repaint. **Output:** None. Leaves the CPU scene and axis resources intact. |
-| [`OpenGLViewport.removeObject(sceneObject)`](../../src/renderer.py#L497) | Release uploaded buffers for an instance using the current widget context and remove its render records. **Output:** None. Leaves the CPU scene list unchanged and schedules a repaint. |
-| [`OpenGLViewport._uploadObject(sceneObject)`](../../src/renderer.py#L519) | Upload validated CPU position/normal data and append a VAO/VBO render record. The caller must own a current OpenGL context. **Output:** None. Allocates GPU resources; partial allocations are released if setup fails. |
-| [`OpenGLViewport.addNewObject(sceneObject)`](../../src/renderer.py#L553) | Acquire the viewport's GL context, upload one instance, then schedule repaint. **Output:** None. Adds GPU render records without adding the instance to the scene list. |
-| [`OpenGLViewport.initializeGL()`](../../src/renderer.py#L592) | Enable depth testing, compile shaders, create axis buffers, and upload existing scene assets under Qt's current GL context. **Output:** None. Initializes GPU handles and cached uniform locations. |
-| [`OpenGLViewport.resizeGL(width, height)`](../../src/renderer.py#L731) | Set the physical-pixel GL viewport using the widget's device-pixel ratio. **Output:** None. Updates GL viewport dimensions with a minimum of one pixel. |
-| [`OpenGLViewport.paintGL()`](../../src/renderer.py#L772) | Update camera movement, clear buffers, and draw axes and uploaded triangles using current instance transforms and colors. **Output:** None. Draws one frame; geometry remains in static GPU buffers. |
+| [`OpenGLViewport.clearRenderObjects()`](../../src/renderer.py#L496) | Acquire the GL context, delete all uploaded object VAOs/VBOs, clear render records, and repaint. **Output:** None. Leaves the CPU scene and axis resources intact. |
+| [`OpenGLViewport.removeObject(sceneObject)`](../../src/renderer.py#L532) | Release uploaded buffers for an instance using the current widget context and remove its render records. **Output:** None. Leaves the CPU scene list unchanged and schedules a repaint. |
+| [`OpenGLViewport._uploadObject(sceneObject)`](../../src/renderer.py#L557) | Upload validated CPU position/normal data and append a VAO/VBO render record. The caller must own a current OpenGL context. **Output:** None. Allocates GPU resources; partial allocations are released if setup fails. |
+| [`OpenGLViewport.addNewObject(sceneObject)`](../../src/renderer.py#L594) | Acquire the viewport's GL context, upload one instance, then schedule repaint. **Output:** None. Adds GPU render records without adding the instance to the scene list. |
+| [`OpenGLViewport.initializeGL()`](../../src/renderer.py#L633) | Enable depth testing, compile shaders, create axis buffers, and upload existing scene assets under Qt's current GL context. **Output:** None. Initializes GPU handles and cached uniform locations. |
+| [`OpenGLViewport.resizeGL(width, height)`](../../src/renderer.py#L780) | Set the physical-pixel GL viewport using the widget's device-pixel ratio. **Output:** None. Updates GL viewport dimensions with a minimum of one pixel. |
+| [`OpenGLViewport.paintGL()`](../../src/renderer.py#L821) | Update camera movement, clear buffers, and draw axes and uploaded triangles using current instance transforms and colors. **Output:** None. Draws one frame; geometry remains in static GPU buffers. |
 
 ## Existing checks
 
@@ -46,3 +46,7 @@ Signatures list inputs; behavior and output summarize the source docstrings. Ful
 ## Debug-ray GPU path
 
 `OpenGLViewport.RenderRay(position, direction, length=100.0)` returns a `Ray`, stores its float32 line data, and requests repaint. `initializeGL()` creates the dedicated shader/VAO/VBO; `paintGL()` uploads the latest line data and draws two vertices with `GL_LINES`. The regular part upload path and per-object colors remain shared by the scene and physics viewports. See [ray data](ray.md) and [regression checks](../../Testing/Developer_Tests/test_rays.py).
+
+## Selection and movement integration
+
+The shared CPU upload path updates instance mesh bounds. A dedicated shader/VAO/VBO displays `Mover` arrow geometry after the scene and debug-ray pass, with depth testing disabled only for the arrows. Left-click prioritizes an existing arrow, otherwise picks the nearest rendered part. Drag updates apply to that instance and mark its scene dirty; deletion and scene clearing detach stale selection state. See [movement geometry](mover.md) and [ray picking](ray.md).

@@ -168,7 +168,7 @@ Click **Properties** in the toolbar to choose a part. Check **Dynamic body** to 
 - `A` / `D`: move left / right
 - `Left` / `Right` arrows: turn the camera left / right (editor and physics window)
 - `Space` / `Ctrl`: move up / down
-- Left-click in the scene viewport: draw a debug camera ray (visualization only)
+- Left-click a part in the scene viewport to select it; drag a colored arrow to move it along that world axis. Moves are saved with the scene.
 - Hold the right mouse button and move the mouse: look around
 - `Esc`: close the editor
 
