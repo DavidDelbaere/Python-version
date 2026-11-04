@@ -35,11 +35,15 @@ class RayCollisionTests(unittest.TestCase):
                 self.assertAlmostEqual(hit["distance"], 3)
 
     def test_repository_formats(self):
-        for path in (ROOT / "cube.obj", ROOT / "Assets/cube.simuOPart"):
-            with self.subTest(path=path):
-                hit = Ray([0, 0.5, -3], [0, 0, 2]).checkCollisions(path)
-                self.assertIsNotNone(hit)
-                np.testing.assert_allclose(hit["point"], [0, 0.5, -3 + 2 * hit["t"]])
+        source = ROOT / "Assets/cube.simuOPart"
+        with tempfile.TemporaryDirectory() as directory:
+            obj = Path(directory) / "cube.obj"
+            obj.write_bytes(source.read_bytes())
+            for path in (obj, source):
+                with self.subTest(path=path):
+                    hit = Ray([0, 0.5, -3], [0, 0, 2]).checkCollisions(path)
+                    self.assertIsNotNone(hit)
+                    np.testing.assert_allclose(hit["point"], [0, 0.5, -3 + 2 * hit["t"]])
 
     def test_transforms_nearest_and_inside(self):
         near = SceneObject("near", ROOT / "Assets/cube.simuOPart")
