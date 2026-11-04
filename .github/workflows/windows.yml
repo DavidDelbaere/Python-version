@@ -44,7 +44,7 @@ jobs:
         run: .venv\Scripts\python.exe -m unittest discover -s Testing/Part_Playground -v
       - name: Launcher from another working directory
         run: |
-          $launcher = Join-Path $PWD 'run.bat'
+          $launcher = Join-Path $PWD 'Testing/Tools/run.bat'
           Push-Location $env:RUNNER_TEMP
           try {
             & $launcher --help

@@ -16,14 +16,14 @@ Open PowerShell in the project folder:
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\run.bat
+.\Testing\Tools\run.bat
 ```
 
-No environment activation or PowerShell execution-policy change is needed. After setup, double-click `run.bat` or run these commands:
+No environment activation or PowerShell execution-policy change is needed. After setup, double-click `Testing/Tools/run.bat` or run these commands:
 
 ```powershell
-.\run.bat --new
-.\run.bat "C:\My Projects\scene.simuO"
+.\Testing\Tools\run.bat --new
+.\Testing\Tools\run.bat "C:\My Projects\scene.simuO"
 ```
 
 The launcher locates Python and the source relative to itself, so the project folder may contain spaces. To use another environment, set `$env:SIMUO_PYTHON = 'C:\path to environment\Scripts\python.exe'`. Project arguments are relative to the terminal's current folder. VS Code's run/debug and build tasks select the Windows interpreter automatically.
@@ -52,7 +52,7 @@ sudo apt install python3 python3-venv python3-pip python3-tk \
     libxcb-xkb1 libxkbcommon-x11-0 libxi6 libxrender1 build-essential python3-dev
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-./run.sh
+./Testing/Tools/run.sh
 ```
 
 Use a fresh `.venv`; the copied `path/to/venv` folders and existing Windows binaries are not installation dependencies. No Cython compilation is needed; the current renderer is Python.
@@ -62,26 +62,26 @@ The system packages above include the libraries required by [Qt's X11 backend](h
 ## Run
 
 ```bash
-./run.sh                       # Startup menu
-./run.sh --new                 # Open an empty editor directly
-./run.sh path/to/scene.simuO    # Open an existing project
+./Testing/Tools/run.sh                       # Startup menu
+./Testing/Tools/run.sh --new                 # Open an empty editor directly
+./Testing/Tools/run.sh path/to/scene.simuO    # Open an existing project
 ```
 
 The launcher can be called by its absolute path from any folder, including paths containing spaces. Project arguments are resolved relative to your terminal's current folder. To use another environment:
 
 ```bash
-SIMUO_PYTHON=/absolute/path/to/venv/bin/python ./run.sh
+SIMUO_PYTHON=/absolute/path/to/venv/bin/python ./Testing/Tools/run.sh
 ```
 
 You can also run `.venv/bin/python src/main.py` directly. On Linux, the application defaults to Qt's `xcb` backend when an X display is available. The camera uses pointer recentering, so use Cinnamon's normal X11 session or XWayland in a Wayland session. An explicit `QT_QPA_PLATFORM` setting is respected.
 
-If Qt reports that it cannot load `xcb`, check the system packages above. `QT_DEBUG_PLUGINS=1 ./run.sh --new` prints plugin diagnostics. For driver troubleshooting, `LIBGL_ALWAYS_SOFTWARE=1 ./run.sh --new` requests Mesa software rendering.
+If Qt reports that it cannot load `xcb`, check the system packages above. `QT_DEBUG_PLUGINS=1 ./Testing/Tools/run.sh --new` prints plugin diagnostics. For driver troubleshooting, `LIBGL_ALWAYS_SOFTWARE=1 ./Testing/Tools/run.sh --new` requests Mesa software rendering.
 
 ## Models and projects
 
 The Part Editor now opens in **3D** with a feature tree containing **Front**, **Right**, and **Top** planes. Select a plane (or a flat model face), choose **New Sketch**, draw/dimension an outline, then **Finish Sketch → Extrude**. You can also select a flat face and **Extrude** it directly. Orbit by dragging, pan with the middle mouse button, and zoom with the wheel. Try `Assets/feature_demo.simuOPart`. See [feature editor guide](Documentation/Frontend/feature_editor.md) for the current workflow and editable feature-file format.
 
-The opening screen also provides **New Part** and **Open Part…**. The Part Editor lets you draw connected lines and three-point arcs, close an outline into a face, and apply line-length or arc-radius dimensions in millimeters. Set a thickness and save an editable `.simuOPart`, then import it into a scene. Open `Assets/sketch_plate.simuOPart` or `Assets/arc_plate.simuOPart` for examples, or run `./run.sh --part-editor`. See [sketch editor guide](Documentation/Frontend/part_editor.md) for controls, file format and scope.
+The opening screen also provides **New Part** and **Open Part…**. The Part Editor lets you draw connected lines and three-point arcs, close an outline into a face, and apply line-length or arc-radius dimensions in millimeters. Set a thickness and save an editable `.simuOPart`, then import it into a scene. Open `Assets/sketch_plate.simuOPart` or `Assets/arc_plate.simuOPart` for examples, or run `./Testing/Tools/run.sh --part-editor`. See [sketch editor guide](Documentation/Frontend/part_editor.md) for controls, file format and scope.
 
 For an arc, select **Draw arcs** and click the start, a point on the curve, then the end. When connected to an existing segment, the last endpoint is reused as the start. Select the arc and choose **Add dimension…** to enter its **radius**, shown as `R` in mm. Radius edits keep endpoints fixed; the minimum radius is half their separation. Esc cancels a pending arc. Lines and arcs can be mixed in one outline.
 

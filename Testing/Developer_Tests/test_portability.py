@@ -93,9 +93,9 @@ class PortabilityTests(unittest.TestCase):
         """
         commands = [[sys.executable, str(ROOT / "src/main.py"), "--help"]]
         if os.name == "nt":
-            commands.append(["cmd", "/d", "/c", str(ROOT / "run.bat"), "--help"])
+            commands.append(["cmd", "/d", "/c", str(ROOT / "Testing/Tools/run.bat"), "--help"])
         else:
-            commands.append([str(ROOT / "run.sh"), "--help"])
+            commands.append([str(ROOT / "Testing/Tools/run.sh"), "--help"])
         environment = os.environ.copy()
         environment.pop("PYTHONPATH", None)
         environment["PYTHONDONTWRITEBYTECODE"] = "1"

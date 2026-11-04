@@ -53,13 +53,13 @@ Application modules live together in `src`; existing flat imports resolve when l
 Run commands from the repository root:
 
 ```bash
-./run.sh --new
+./Testing/Tools/run.sh --new
 .venv/bin/python -m unittest discover -s Testing/Developer_Tests -v
 .venv/bin/python -m unittest discover -s Testing/Part_Playground -v
 .venv/bin/python -m PyInstaller --noconfirm src/main.spec
 ```
 
-On Windows, use `run.bat` and `.venv\Scripts\python.exe`. Dependencies, including PyInstaller, are declared in the root `requirements.txt`. `src/main.spec` is the only build specification; VS Code and Windows CI use that path. Root launchers resolve their interpreter and entry point relative to themselves, while user-supplied project arguments remain relative to the caller's working directory.
+On Windows, use `Testing/Tools/run.bat` and `.venv\Scripts\python.exe`. Dependencies, including PyInstaller, are declared in the root `requirements.txt`. `src/main.spec` is the only build specification; VS Code and Windows CI use that path. Launchers in `Testing/Tools` locate the repository two levels above themselves and resolve the interpreter and entry point from there, while user-supplied project arguments remain relative to the caller's working directory.
 
 If you move source modules into packages later, update the Python imports, this index, tests, and build configuration together. Virtual environments contain absolute activation/script paths; recreate `.venv` after relocating the checkout if those environment commands stop working. The documented `python -m pip` commands avoid relying on a relocated `pip` script.
 
