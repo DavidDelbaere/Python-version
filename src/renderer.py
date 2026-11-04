@@ -1,4 +1,3 @@
-from pathlib import Path
 import math
 import time
 import ctypes
@@ -12,6 +11,8 @@ from OpenGL.GL.shaders import compileProgram, compileShader
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtGui import QCursor
+
+from part_assets import loadObjFlatShaded  # Compatibility export for existing callers
 
 
 AXIS_VERTEX_SHADER = """
@@ -79,6 +80,7 @@ in vec3 frag_position;
 in vec3 frag_normal;
 
 uniform vec3 camera_position;
+uniform vec3 base_color;
 
 out vec4 frag_color;
 
@@ -96,9 +98,6 @@ void main()
 
     float brightness =
         min(ambient + diffuse * 0.82, 1.0);
-
-    vec3 base_color =
-        vec3(0.72, 0.76, 0.82);
 
     frag_color =
         vec4(base_color * brightness, 1.0);
@@ -173,116 +172,6 @@ def createAxisLines(
         vertices,
         dtype=np.float32
     )
-
-def loadObjFlatShaded(filename):
-    positions = []
-    output = []
-
-    with open(
-        filename,
-        "r",
-        encoding="utf-8",
-        errors="ignore"
-    ) as file:
-
-        for line in file:
-            data = line.split()
-
-            if not data:
-                continue
-
-            if data[0] == "v":
-                positions.append(
-                    np.array(
-                        [
-                            float(data[1]),
-                            float(data[2]),
-                            float(data[3]),
-                        ],
-                        dtype=np.float32,
-                    )
-                )
-
-            elif data[0] == "f":
-                indices = []
-
-                for token in data[1:]:
-                    vertex_index = int(
-                        token.split("/")[0]
-                    )
-
-                    if vertex_index < 0:
-                        vertex_index = (
-                            len(positions)
-                            + vertex_index
-                        )
-                    else:
-                        vertex_index -= 1
-
-                    indices.append(
-                        vertex_index
-                    )
-
-                # Convert polygon faces to triangles.
-                for i in range(
-                    1,
-                    len(indices) - 1
-                ):
-                    p0 = positions[
-                        indices[0]
-                    ]
-
-                    p1 = positions[
-                        indices[i]
-                    ]
-
-                    p2 = positions[
-                        indices[i + 1]
-                    ]
-
-                    edge1 = p1 - p0
-                    edge2 = p2 - p0
-
-                    normal = np.cross(
-                        edge1,
-                        edge2
-                    )
-
-                    length = np.linalg.norm(
-                        normal
-                    )
-
-                    if length > 0.0:
-                        normal = (
-                            normal / length
-                        )
-                    else:
-                        normal = np.array(
-                            [0.0, 1.0, 0.0],
-                            dtype=np.float32,
-                        )
-
-                    for point in (
-                        p0,
-                        p1,
-                        p2
-                    ):
-                        output.extend(
-                            [
-                                point[0],
-                                point[1],
-                                point[2],
-                                normal[0],
-                                normal[1],
-                                normal[2],
-                            ]
-                        )
-
-    return np.asarray(
-        output,
-        dtype=np.float32,
-    )
-
 
 class Camera:
     def __init__(self):
@@ -487,89 +376,66 @@ class OpenGLViewport(QOpenGLWidget):
 
         self.update()
         
-    def addNewObject(self, object):
-        meshPath = Path(
-            object.meshPath
-        )
-        self.makeCurrent()
-        
-        if not meshPath.exists():
-            self.doneCurrent()
-            raise FileNotFoundError(
+    def removeObject(self, sceneObject):
+        removed = [obj for obj in self.renderObjects if obj["SceneObject"] is sceneObject]
+        if removed:
+            self.makeCurrent()
+            try:
+                for obj in removed:
+                    glDeleteVertexArrays(1, [obj["vao"]])
+                    glDeleteBuffers(1, [obj["vbo"]])
+                    self.renderObjects.remove(obj)
+            finally:
+                self.doneCurrent()
+        self.update()
 
-                f"Could not find OBJ at {meshPath}"
-            )
-
-
-        vertexData = loadObjFlatShaded(meshPath)
-
-        vertexCount = (
-            len(vertexData) // 6
-        )
-
-        print(
-            f"Loaded {vertexCount:,} vertices for {object.name}"
-        )
-
+    def _uploadObject(self, sceneObject):
+        """Upload already validated CPU data; caller owns the GL context."""
+        vertexData = sceneObject.asset.vertices
         vao = glGenVertexArrays(1)
-
-        glBindVertexArray(
-            vao
-        )
-
         vbo = glGenBuffers(1)
-
-        glBindBuffer(
-            GL_ARRAY_BUFFER,
-            vbo
-        )
-        glBufferData(
-            GL_ARRAY_BUFFER,
-            vertexData.nbytes,
-            vertexData,
-            GL_STATIC_DRAW,
-        )
-
-        stride = (
-            6 * vertexData.itemsize
-        )
-        
-        glEnableVertexAttribArray(
-            0
-        )
-        glVertexAttribPointer(
-            0,
-            3,
-            GL_FLOAT,
-            GL_FALSE,
-            stride,
-            ctypes.c_void_p(0)
-        )
-
-        # Normal 
-        glEnableVertexAttribArray(1)
-        
-        glVertexAttribPointer(
-            1,
-            3,
-            GL_FLOAT,
-            GL_FALSE,
-            stride,
-            ctypes.c_void_p(
-                3 * vertexData.itemsize
-            )
-        )
-
-        glBindVertexArray(0)
+        try:
+            glBindVertexArray(vao)
+            glBindBuffer(GL_ARRAY_BUFFER, vbo)
+            glBufferData(GL_ARRAY_BUFFER, vertexData.nbytes, vertexData, GL_STATIC_DRAW)
+            stride = 6 * vertexData.itemsize
+            for location, offset in ((0, 0), (1, 3 * vertexData.itemsize)):
+                glEnableVertexAttribArray(location)
+                glVertexAttribPointer(location, 3, GL_FLOAT, GL_FALSE, stride,
+                                      ctypes.c_void_p(offset))
+            glBindVertexArray(0)
+        except Exception:
+            glDeleteBuffers(1, [vbo])
+            glDeleteVertexArrays(1, [vao])
+            raise
         self.renderObjects.append({
-            "SceneObject": object,
-            "vao": vao,
-            "vbo": vbo,
-            "vertexCount": vertexCount
+            "SceneObject": sceneObject, "vao": vao, "vbo": vbo,
+            "vertexCount": len(vertexData) // 6,
         })
-        
-        self.doneCurrent()
-        self.update()   
+        print(f"Loaded {len(vertexData) // 6:,} vertices for {sceneObject.name}")
+
+    def addNewObject(self, sceneObject):
+        self.makeCurrent()
+        try:
+            self._uploadObject(sceneObject)
+        finally:
+            self.doneCurrent()
+        self.update()
+
+    def frameObject(self, sceneObject):
+        """Make SI-sized imported parts visible without changing their scale."""
+        points = sceneObject.asset.vertices.reshape(-1, 6)[:, :3]
+        low, high = points.min(axis=0), points.max(axis=0)
+        center = (low + high) / 2 * np.asarray(sceneObject.scale)
+        radius = float(np.linalg.norm((high-low) * np.asarray(sceneObject.scale))) / 2
+        distance = max(0.5, radius * 3)
+        target = glm.vec3(*(center + np.asarray(sceneObject.position)))
+        self.camera.position = target + glm.vec3(0, distance * 0.35, distance)
+        self.camera.yaw = -90.0
+        self.camera.pitch = -math.degrees(math.atan(0.35))
+        self.camera.update_vectors()
+        self.update()
+
     def initializeGL(self):
         print(
             "initializeGL called"
@@ -643,6 +509,8 @@ class OpenGLViewport(QOpenGLWidget):
             )
         )
 
+        self.color_location = glGetUniformLocation(self.shader, "base_color")
+
         axisData = createAxisLines(-2000,2000)
         
         self.axisVertexCount  = len(axisData) // 3
@@ -686,81 +554,8 @@ class OpenGLViewport(QOpenGLWidget):
 
         if self.scene is not None:
             for sceneObject in self.scene.objects:
-                
-                meshPath = Path(sceneObject.meshPath)
-                
-                if not meshPath.exists():
-                    raise FileNotFoundError(
-                        f"Could not find OBJ at {meshPath}"
-                    )
-                    continue 
-                
-                vertexData = loadObjFlatShaded(meshPath)
-                
-                vertexCount = (
-                    len(vertexData) // 6
-                )
-                
-                print(
-                    f"Loaded {vertexCount:,} vertices for {sceneObject.name}"
-                )
-                vao = glGenVertexArrays(1)
-                
-                glBindVertexArray(vao)
-                
-                vbo = glGenBuffers(1)
-                
-                glBindBuffer(
-                    GL_ARRAY_BUFFER,
-                    vbo
-                )
-                glBufferData(
-                    GL_ARRAY_BUFFER,
-                    vertexData.nbytes,
-                    vertexData,
-                    GL_STATIC_DRAW,
-                )
-                
-                stride = (
-                    6 * vertexData.itemsize
-                    
-                )
-                glEnableVertexAttribArray(
-                    0
-                )
+                self._uploadObject(sceneObject)
 
-                glVertexAttribPointer(
-                    0,
-                    3,
-                    GL_FLOAT,
-                    GL_FALSE,
-                    stride,
-                    ctypes.c_void_p(0)
-                )
-                glEnableVertexAttribArray(1)
-                
-                
-                glVertexAttribPointer(
-                    1,
-                    3,
-                    GL_FLOAT,
-                    GL_FALSE,
-                    stride,
-                    ctypes.c_void_p(
-                        3*vertexData.itemsize
-                    )
-                    )
-                
-                glBindVertexArray(0)
-                
-                self.renderObjects.append({
-                    "SceneObject": sceneObject,
-                    "vao": vao,
-                    "vbo": vbo,
-                    "vertexCount": vertexCount
-                }   
-                )
-                
         print(
             "OpenGL viewport initialized"
         )
@@ -973,6 +768,8 @@ class OpenGLViewport(QOpenGLWidget):
                 ]
             )
 
+            glUniform3f(self.color_location, *sceneObject.asset.color)
+
             model = glm.mat4(
                 1.0
             )
@@ -1071,6 +868,11 @@ class OpenGLViewport(QOpenGLWidget):
         self,
         delta_time
     ):
+        turn = int(Qt.Key_Right in self.keys) - int(Qt.Key_Left in self.keys)
+        if turn:
+            self.camera.yaw += turn * 90.0 * delta_time
+            self.camera.update_vectors()
+
         speed = (
             10.0
             * delta_time
@@ -1130,9 +932,21 @@ class OpenGLViewport(QOpenGLWidget):
         self,
         event
     ):
+        if event.isAutoRepeat():
+            return
         self.keys.discard(
             event.key()
         )
+
+    def focusOutEvent(self, event):
+        # File dialogs and switching applications can swallow key-up events.
+        self.keys.clear()
+        if self.right_mouse_down:
+            self.right_mouse_down = False
+            self.ignore_center_event = False
+            self.releaseMouse()
+            self.unsetCursor()
+        super().focusOutEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.RightButton:

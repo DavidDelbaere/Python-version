@@ -1,9 +1,1 @@
-PySide6
-PyOpenGL
-PyGLM
-numpy
-customtkinter
-Pillow
-moderngl
-glfw
-Cython
+-r src/requirements.txt

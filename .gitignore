@@ -1,0 +1,12 @@
+.venv/
+path/
+src/path/
+__pycache__/
+*.py[cod]
+build/
+dist/
+src/build/
+src/dist/
+src/main
+*.egg-info/
+.DS_Store

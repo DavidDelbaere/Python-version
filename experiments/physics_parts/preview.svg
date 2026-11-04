@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700" viewBox="0 0 1000 700">
+<rect width="100%" height="100%" fill="#2e2e33"/>
+<line x1="452.430" y1="317.887" x2="1070.763" y2="457.264" stroke="#444444" stroke-width="1"/>
+<line x1="452.430" y1="317.887" x2="-213.600" y2="547.112" stroke="#444444" stroke-width="1"/>
+<line x1="431.389" y1="325.128" x2="1069.670" y2="477.026" stroke="#444444" stroke-width="1"/>
+<line x1="476.661" y1="323.349" x2="-197.510" y2="570.530" stroke="#444444" stroke-width="1"/>
+<line x1="408.914" y1="332.864" x2="1068.449" y2="499.089" stroke="#444444" stroke-width="1"/>
+<line x1="502.128" y1="329.089" x2="-179.650" y2="596.527" stroke="#444444" stroke-width="1"/>
+<line x1="384.852" y1="341.145" x2="1067.078" y2="523.882" stroke="#444444" stroke-width="1"/>
+<line x1="528.927" y1="335.130" x2="-159.708" y2="625.552" stroke="#444444" stroke-width="1"/>
+<line x1="359.029" y1="350.032" x2="1065.526" y2="551.943" stroke="#444444" stroke-width="1"/>
+<line x1="557.167" y1="341.495" x2="-137.300" y2="658.168" stroke="#444444" stroke-width="1"/>
+<line x1="331.245" y1="359.595" x2="1063.755" y2="583.966" stroke="#444444" stroke-width="1"/>
+<line x1="586.966" y1="348.212" x2="-111.936" y2="695.085" stroke="#444444" stroke-width="1"/>
+<line x1="301.267" y1="369.912" x2="1061.715" y2="620.853" stroke="#444444" stroke-width="1"/>
+<line x1="618.458" y1="355.311" x2="-82.992" y2="737.214" stroke="#444444" stroke-width="1"/>
+<line x1="268.825" y1="381.077" x2="1059.340" y2="663.803" stroke="#444444" stroke-width="1"/>
+<line x1="651.790" y1="362.824" x2="-49.652" y2="785.741" stroke="#444444" stroke-width="1"/>
+<line x1="233.602" y1="393.200" x2="1056.539" y2="714.445" stroke="#444444" stroke-width="1"/>
+<line x1="687.130" y1="370.790" x2="-10.831" y2="842.245" stroke="#444444" stroke-width="1"/>
+<line x1="195.225" y1="406.408" x2="1053.187" y2="775.047" stroke="#444444" stroke-width="1"/>
+<line x1="724.664" y1="379.251" x2="34.942" y2="908.870" stroke="#444444" stroke-width="1"/>
+<line x1="153.249" y1="420.855" x2="1049.104" y2="848.870" stroke="#444444" stroke-width="1"/>
+<line x1="764.603" y1="388.253" x2="89.719" y2="988.599" stroke="#444444" stroke-width="1"/>
+<line x1="107.144" y1="436.723" x2="1044.022" y2="940.770" stroke="#444444" stroke-width="1"/>
+<line x1="807.185" y1="397.852" x2="156.448" y2="1085.724" stroke="#444444" stroke-width="1"/>
+<line x1="56.269" y1="454.232" x2="1037.521" y2="1058.312" stroke="#444444" stroke-width="1"/>
+<line x1="852.683" y1="408.107" x2="239.517" y2="1206.632" stroke="#444444" stroke-width="1"/>
+<line x1="-0.157" y1="473.652" x2="1028.912" y2="1213.967" stroke="#444444" stroke-width="1"/>
+<line x1="901.406" y1="419.090" x2="345.766" y2="1361.281" stroke="#444444" stroke-width="1"/>
+<line x1="-63.094" y1="495.313" x2="1016.972" y2="1429.863" stroke="#444444" stroke-width="1"/>
+<line x1="953.709" y1="430.880" x2="486.472" y2="1566.081" stroke="#444444" stroke-width="1"/>
+<line x1="-133.739" y1="519.626" x2="999.302" y2="1749.357" stroke="#444444" stroke-width="1"/>
+<line x1="1010.003" y1="443.569" x2="681.639" y2="1850.152" stroke="#444444" stroke-width="1"/>
+<line x1="-213.600" y1="547.112" x2="970.476" y2="2270.560" stroke="#444444" stroke-width="1"/>
+<line x1="1070.763" y1="457.264" x2="970.476" y2="2270.560" stroke="#444444" stroke-width="1"/>
+<line x1="500.000" y1="497.192" x2="500.000" y2="179.404" stroke="#777777" stroke-width="1"/>
+<polygon points="494.170,206.122 494.009,142.759 546.239,145.047 544.931,211.511" fill="#19414b" stroke="#a7e2ec" stroke-width="1"/>
+<polygon points="494.170,206.122 454.349,213.324 452.999,145.819 494.009,142.759" fill="#2a6d7e" stroke="#a7e2ec" stroke-width="1"/>
+<polygon points="494.170,206.122 544.931,211.511 506.552,219.477 454.349,213.324" fill="#19414b" stroke="#a7e2ec" stroke-width="1"/>
+<polygon points="494.009,142.759 452.999,145.819 506.756,148.442 546.239,145.047" fill="#3b9ab1" stroke="#a7e2ec" stroke-width="1"/>
+<polygon points="544.931,211.511 546.239,145.047 506.756,148.442 506.552,219.477" fill="#19414b" stroke="#a7e2ec" stroke-width="1"/>
+<polygon points="454.349,213.324 506.552,219.477 506.756,148.442 452.999,145.819" fill="#338498" stroke="#a7e2ec" stroke-width="1"/>
+<text x="24" y="36" fill="#eeeeee" font-family="sans-serif" font-size="20">Aluminum cube | 21.6 kg | t=0.000 s | y=1.100 m</text>
+<text x="24" y="64" fill="#aaaaaa" font-family="sans-serif" font-size="14">SimuO part · perspective view · grid on floor y=0</text>
+</svg>

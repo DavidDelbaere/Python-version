@@ -3,6 +3,7 @@ from pathlib import Path
 import customtkinter as ctk
 from tkinter import filedialog
 from PIL import Image
+from resources import resource_path
 
 
 class SimuOStartMenu(ctk.CTkToplevel):
@@ -15,13 +16,17 @@ class SimuOStartMenu(ctk.CTkToplevel):
         on_import=None,
         title="SimuO",
         width=520,
-        height=610,
+        height=710,
+        on_new_part=None,
+        on_open_part=None,
     ):
         super().__init__(parent)
 
         self.parent = parent
         self.on_new = on_new
         self.on_import = on_import
+        self.on_new_part = on_new_part
+        self.on_open_part = on_open_part
 
         self.window_width = width
         self.window_height = height
@@ -35,8 +40,9 @@ class SimuOStartMenu(ctk.CTkToplevel):
             fg_color="#1f1f1f"
         )
 
-        self.transient(parent)
-        self.grab_set()
+        # A transient of a withdrawn root can remain invisible on Linux.
+        # X11 also requires the window to be mapped before taking a grab.
+        self.bind("<Map>", self._grab_when_visible, add="+")
 
         self.protocol(
             "WM_DELETE_WINDOW",
@@ -51,6 +57,10 @@ class SimuOStartMenu(ctk.CTkToplevel):
             self._center_on_screen
         )
 
+
+    def _grab_when_visible(self, event):
+        if event.widget is self and self.winfo_viewable():
+            self.grab_set()
 
     def _build_ui(self, logo_path):
 
@@ -250,6 +260,27 @@ class SimuOStartMenu(ctk.CTkToplevel):
             fill="x"
         )
 
+        ctk.CTkLabel(button_frame,text="PART EDITOR",text_color="#a8c5d6").pack(pady=(12,4))
+        for text,callback in (("New Part",self._new_part),("Open Part…",self._open_part)):
+            ctk.CTkButton(button_frame,text=text,command=callback,height=38,
+                          fg_color="#3f3f3f",hover_color="#525252",
+                          border_width=1,border_color="#5a5a5a",text_color="#f5f5f5").pack(fill="x",pady=(0,8))
+
+    def _new_part(self):
+        callback = self.on_new_part
+        self._close()
+        if callback:
+            callback()
+
+    def _open_part(self):
+        filename = filedialog.askopenfilename(parent=self,title="Open SimuO Part",
+                                              filetypes=[("SimuO Parts","*.simuOPart")])
+        if filename:
+            callback = self.on_open_part
+            self._close()
+            if callback:
+                callback(filename)
+
     def _build_text_logo(
         self,
         parent
@@ -333,7 +364,7 @@ class SimuOStartMenu(ctk.CTkToplevel):
                 ),
                 (
                     "All Files",
-                    "*.*"
+                    "*"
                 ),
             ],
         )
@@ -367,6 +398,8 @@ def showStartMenu(
     logo_path=None,
     on_new=None,
     on_import=None,
+    on_new_part=None,
+    on_open_part=None,
 ):
 
     return SimuOStartMenu(
@@ -374,6 +407,8 @@ def showStartMenu(
         logo_path=logo_path,
         on_new=on_new,
         on_import=on_import,
+        on_new_part=on_new_part,
+        on_open_part=on_open_part,
     )
 
 
@@ -417,11 +452,7 @@ if __name__ == "__main__":
         )
 
 
-    logo_path = (
-        Path(__file__).resolve().parent
-        / "Images"
-        / "simuo_logo.png"
-    )
+    logo_path = resource_path("Images", "simuo_logo.png")
 
 
     root.after(

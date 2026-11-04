@@ -1,0 +1,33 @@
+{
+  "format": ".simuOPart",
+  "version": 1,
+  "id": "demo.aluminum-cube",
+  "name": "Aluminum cube",
+  "description": "A solid 20 cm cube for a gravity and bounce test.",
+  "units": {"length": "m", "mass": "kg", "time": "s"},
+  "coordinates": {"handedness": "right", "up": "+Y"},
+  "geometry": {
+    "type": "box",
+    "size": [0.2, 0.2, 0.2]
+  },
+  "appearance": {"color": "#47b9d5"},
+  "material": {
+    "name": "Aluminum (illustrative)",
+    "density": 2700,
+    "friction": 0.5,
+    "restitution": 0.45
+  },
+  "physics": {
+    "body_type": "dynamic",
+    "mass_source": "density",
+    "collider": "geometry"
+  },
+  "initial_state": {
+    "position": [0, 1.1, 0],
+    "velocity": [0.35, 0, 0.15]
+  },
+  "properties": {
+    "demo:purpose": "Free fall, floor contact, friction and bounce",
+    "demo:temperature_K": 293.15
+  }
+}

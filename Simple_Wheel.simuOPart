@@ -1,0 +1,84 @@
+{
+  "format": ".simuOPart",
+  "version": 3,
+  "id": "1d529662-dded-4e79-9cd0-dece11fc6591",
+  "name": "Simple_Wheel",
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "time": "s"
+  },
+  "coordinates": {
+    "handedness": "right",
+    "up": "+Y"
+  },
+  "geometry": {
+    "type": "feature_part",
+    "features": [
+      {
+        "id": "2c4e6f82-c508-4a46-85ec-4ab3c7b7f18b",
+        "name": "Sketch 1",
+        "support": {
+          "type": "plane",
+          "name": "Front"
+        },
+        "sketch": {
+          "type": "sketch",
+          "points": [
+            [
+              0.2,
+              0.0
+            ],
+            [
+              -0.2,
+              0.0
+            ]
+          ],
+          "closed": true,
+          "dimensions": [
+            0.2,
+            null
+          ],
+          "thickness": 0.01,
+          "arcs": [
+            {
+              "bulge": 1.0
+            },
+            {
+              "bulge": 1.0
+            }
+          ]
+        },
+        "depth": 0.2,
+        "symmetric": false
+      }
+    ]
+  },
+  "appearance": {
+    "color": "#47b9d5"
+  },
+  "material": {
+    "name": "Default material",
+    "density": 1000,
+    "friction": 0.5,
+    "restitution": 0.2
+  },
+  "physics": {
+    "body_type": "dynamic",
+    "mass_source": "density",
+    "collider": "geometry"
+  },
+  "initial_state": {
+    "position": [
+      0,
+      1,
+      0
+    ],
+    "velocity": [
+      0,
+      0,
+      0
+    ]
+  },
+  "properties": {}
+}

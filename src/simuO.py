@@ -17,10 +17,16 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QLabel,
     QMessageBox,
+    QDockWidget,
+    QWidget,
 )
 
+from tkinter import filedialog
 from scene import Scene, SceneObject
 from renderer import OpenGLViewport
+from project_paths import resolve_mesh_path, stored_mesh_path
+from temporary_parts import TemporaryParts, atomic_write
+from properties_dialog import PropertiesDialog
 
 
 class SimuOMainWindow(QMainWindow):
@@ -33,6 +39,9 @@ class SimuOMainWindow(QMainWindow):
             scene = Scene()
 
         self.scene = scene
+        self.renderWindows = []
+        self.partWindows = []
+        self.temporaryParts = TemporaryParts()
 
         self.setWindowTitle("SimuO - Untitled")
 
@@ -141,45 +150,65 @@ class SimuOMainWindow(QMainWindow):
         self.viewport = OpenGLViewport(self, scene=self.scene)
 
         self.setCentralWidget(self.viewport)
+        self.createTemporaryPartsPanel()
+        self.statusBar().showMessage(
+            "Import Part to add a model · Right-drag to look · WASD to move · Help → Controls"
+        )
         
         if projectPath is not None:
-            self.loadFile(projectPath,uploadToGPU=False)
+            if not self.tryLoadFile(projectPath, uploadToGPU=False):
+                self.projectPath = None
 
 
     # ---------------------------------------------------------
     # FILE OPERATIONS
     # ---------------------------------------------------------
 
+    def createTemporaryPartsPanel(self):
+        self.temporaryPartsDock = QDockWidget("Temporary parts", self)
+        panel = QWidget(self)
+        layout = QVBoxLayout(panel)
+        self.temporaryPartsDirectory = QLabel(panel)
+        self.temporaryPartsDirectory.setWordWrap(True)
+        self.temporaryPartsDirectory.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.temporaryPartsDirectory)
+        self.temporaryPartsList = QListWidget(panel)
+        layout.addWidget(self.temporaryPartsList)
+        self.temporaryPartsDock.setWidget(panel)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.temporaryPartsDock)
+        self.windowMenu.addAction(self.temporaryPartsDock.toggleViewAction())
+        self.temporaryPartsDock.hide()
+
+    def refreshTemporaryParts(self):
+        self.temporaryPartsList.clear()
+        for path in self.temporaryParts.sources:
+            self.temporaryPartsList.addItem(path.name)
+            self.temporaryPartsList.item(self.temporaryPartsList.count()-1).setToolTip(str(path))
+        self.temporaryPartsDirectory.setText(
+            f"Unsaved parts are stored in:\n{self.temporaryParts.directory}\n\n"
+            "Save the scene to choose permanent locations for these parts."
+        )
+        self.temporaryPartsDock.setVisible(bool(self.temporaryParts.sources))
+
+    def newPart(self):
+        from feature_editor import FeaturePartEditor
+
+        window = FeaturePartEditor()
+        self.partWindows.append(window)
+        window.show()
+
     def newProject(self):
-
-        if self.scene.sceneHasObjects():
-            response = QMessageBox.question(
-                self,
-                "New Project",
-                "The current project contains objects. "
-                "Would you like to save before creating a new project?",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-            )
-
-            if response == QMessageBox.Cancel:
-                return
-
-            if response == QMessageBox.Save:
-                if self.projectPath is None:
-                    self.saveAsFile()
-                else:
-                    self.saveFile()
-
-                # If the user cancelled the Save dialog,
-                # don't destroy the current scene.
-                if self.projectPath is None:
-                    return
+        if not self.confirmUnsavedChanges("New Project"):
+            return
 
         self.scene.objects.clear()
 
         self.viewport.clearRenderObjects()
+        self.temporaryParts.cleanup()
+        self.refreshTemporaryParts()
 
         self.projectPath = None
+        self.scene.dirty = False
 
         self.setWindowTitle("SimuO - Untitled")
 
@@ -200,10 +229,7 @@ class SimuOMainWindow(QMainWindow):
                 file
             )
 
-        self.scene.objects.clear()
-
-        if uploadToGPU:
-            self.viewport.clearRenderObjects()
+        loadedObjects = []
 
         for objectData in data.get(
             "objects",
@@ -211,14 +237,12 @@ class SimuOMainWindow(QMainWindow):
         ):
             sceneObject = SceneObject(
                 name=objectData["name"],
-                meshPath=Path(
-                    objectData["meshPath"]
-                )
+                meshPath=resolve_mesh_path(objectData["meshPath"], path)
             )
 
             position = objectData.get(
                 "position",
-                [0.0, 0.0, 0.0]
+                sceneObject.position
             )
 
             rotation = objectData.get(
@@ -249,18 +273,31 @@ class SimuOMainWindow(QMainWindow):
                 scale[2]
             ]
 
-            self.scene.addObject(
-                sceneObject
+            sceneObject.setPhysicsProperties(
+                objectData.get("restitution", sceneObject.restitution),
+                objectData.get("velocity", sceneObject.velocity),
+                objectData.get("body_type", sceneObject.body_type),
             )
+            sceneObject.acceleration = list(objectData.get("acceleration", sceneObject.acceleration))
+            sceneObject.angularVelocity = list(objectData.get("angularVelocity", sceneObject.angularVelocity))
 
-            if uploadToGPU:
-                self.viewport.addNewObject(
-                    sceneObject
-                )
+            loadedObjects.append(sceneObject)
+
+        # Resolve all model files before replacing the current scene.
+        if uploadToGPU:
+            self.viewport.clearRenderObjects()
+        self.scene.objects[:] = loadedObjects
+        if uploadToGPU:
+            for sceneObject in loadedObjects:
+                self.viewport.addNewObject(sceneObject)
+
+        if len(loadedObjects) == 1 and loadedObjects[0].part is not None:
+            self.viewport.frameObject(loadedObjects[0])
 
         self.projectPath = Path(
             path
         )
+        self.scene.dirty = False
 
         self.setWindowTitle(
             f"SimuO - {self.projectPath.stem}"
@@ -273,6 +310,14 @@ class SimuOMainWindow(QMainWindow):
             "Opened project:",
             path
         )
+    def tryLoadFile(self, path, uploadToGPU=True):
+        try:
+            self.loadFile(path, uploadToGPU)
+        except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError) as error:
+            QMessageBox.warning(self, "Cannot Open Project", str(error))
+            return False
+        return True
+
     def openFile(self):
         filePath, _ = QFileDialog.getOpenFileName(
             self,
@@ -286,14 +331,18 @@ class SimuOMainWindow(QMainWindow):
 
         path = Path(filePath)
 
-        self.loadFile(path, True)
+        if not self.confirmUnsavedChanges("Open Project"):
+            return
+        if self.tryLoadFile(path, True):
+            self.temporaryParts.cleanup()
+            self.refreshTemporaryParts()
 
     def importFile(self):
         filePath, _ = QFileDialog.getOpenFileName(
             self,
-            "Import File",
+            "Import Part",
             "",
-            "3D Model Files (*.simuOPart);;All Files (*)",
+            "3D Model Files (*.simuOPart *.obj *.OBJ);;SimuO Parts (*.simuOPart);;OBJ Models (*.obj *.OBJ);;All Files (*)",
         )
 
         if not filePath:
@@ -303,27 +352,83 @@ class SimuOMainWindow(QMainWindow):
 
         path = Path(filePath)
 
-        importedObject = SceneObject(name=path.stem, meshPath=path)
+        temporaryPath = None
+        try:
+            if path.suffix.lower() == ".obj":
+                answer = QMessageBox.question(
+                    self, "Create SimuO Part",
+                    f"Create a new SimuO part from {path.name}?\n\n"
+                    "The part will be temporary until you save the scene. "
+                    "Your original OBJ file will be kept.",
+                    QMessageBox.Yes | QMessageBox.Cancel,
+                    QMessageBox.Yes,
+                )
+                if answer != QMessageBox.Yes:
+                    return
+                temporaryPath = self.temporaryParts.create(path)
+                path = temporaryPath
+            importedObject = SceneObject(meshPath=path)
+            if temporaryPath is not None and importedObject.part is not None:
+                raise ValueError("Expected OBJ geometry in the selected .obj file")
+            self.viewport.addNewObject(importedObject)
+        except (OSError, ValueError, TypeError, OverflowError) as error:
+            if temporaryPath is not None:
+                self.temporaryParts.release(temporaryPath)
+            QMessageBox.warning(self, "Cannot Import Part", str(error))
+            return
 
         self.scene.addObject(importedObject)
+        self.scene.dirty = True
+        self.refreshTemporaryParts()
+        if importedObject.part is not None or temporaryPath is not None:
+            self.viewport.frameObject(importedObject)
 
-        self.viewport.addNewObject(importedObject)
-
-    def saveFile(self):
-        if self.projectPath is None:
+    def saveFile(self, checked=False, destination=None):
+        path = Path(destination) if destination is not None else self.projectPath
+        if path is None:
             filePath, _ = QFileDialog.getSaveFileName(
                 self, "Save SimuO Project", "", "SimuO Project Files (*.simuO)"
             )
 
             if not filePath:
-                return
+                return False
 
             path = Path(filePath)
 
-            if path.suffix.lower() != ".simuo":
-                path = path.with_suffix(".simuO")
+        path = Path(path).resolve()
+        if path.suffix.lower() != ".simuo":
+            path = path.with_suffix(".simuO")
+        directory = self.temporaryParts.directory
+        if directory is not None and path.is_relative_to(directory):
+            QMessageBox.warning(self, "Cannot Save Scene", "Choose a permanent folder outside the temporary parts directory.")
+            return False
 
-            self.projectPath = path
+        # Ask for every destination before writing anything. A cancelled part
+        # dialog must never produce a scene referring to temporary files.
+        partPaths = {}
+        for sceneObject in self.scene.objects:
+            source = Path(sceneObject.meshPath).resolve() if sceneObject.meshPath else None
+            if not self.temporaryParts.contains(source) or source in partPaths:
+                continue
+            filename, _ = QFileDialog.getSaveFileName(
+                self, f"Save SimuO Part — {source.stem}",
+                str(path.parent / source.name), "SimuO Part Files (*.simuOPart)",
+            )
+            if not filename:
+                return False
+            target = Path(filename).resolve()
+            if target.suffix.lower() != ".simuopart":
+                target = target.with_suffix(".simuOPart")
+                if target.exists() and QMessageBox.question(
+                    self, "Replace Part", f"Replace the existing part {target.name}?",
+                    QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel,
+                ) != QMessageBox.Yes:
+                    return False
+            directory = self.temporaryParts.directory
+            if (directory is not None and target.is_relative_to(directory)) or target == path or target in partPaths.values():
+                QMessageBox.warning(self, "Cannot Save Part", "Choose a separate permanent file for each part.")
+                return False
+            partPaths[source] = target
 
         data = {"version": 1, "objects": []}
 
@@ -334,20 +439,47 @@ class SimuOMainWindow(QMainWindow):
 
             objectData = {
                 "name": sceneObject.name,
-                "meshPath": str(sceneObject.meshPath),
+                "meshPath": stored_mesh_path(
+                    partPaths.get(Path(sceneObject.meshPath).resolve(), sceneObject.meshPath), path
+                ),
                 "position": list(sceneObject.position),
                 "rotation": list(sceneObject.rotation),
                 "scale": list(sceneObject.scale),
+                "velocity": list(sceneObject.velocity),
+                "restitution": sceneObject.restitution,
+                "body_type": sceneObject.body_type,
+                "acceleration": list(sceneObject.acceleration),
+                "angularVelocity": list(sceneObject.angularVelocity),
             }
 
             data["objects"].append(objectData)
 
-        with open(self.projectPath, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=4)
+        try:
+            for source, target in partPaths.items():
+                atomic_write(target, source.read_bytes())
+            atomic_write(path, json.dumps(data, indent=4).encode("utf-8"))
+        except OSError as error:
+            QMessageBox.warning(
+                self, "Cannot Save Scene",
+                f"Could not save the scene to:\n{path}\n\n{error}\n\n"
+                "Your scene is still open. Choose a writable folder and try again.",
+            )
+            return False
+
+        for sceneObject in self.scene.objects:
+            source = Path(sceneObject.meshPath).resolve() if sceneObject.meshPath else None
+            if source in partPaths:
+                sceneObject.meshPath = partPaths[source]
+        for source in partPaths:
+            self.temporaryParts.release(source)
+        self.projectPath = path
+        self.scene.dirty = False
+        self.refreshTemporaryParts()
 
         self.setWindowTitle(f"SimuO - {self.projectPath.stem}")
 
         print("Saved project:", self.projectPath)
+        return True
 
     def saveAsFile(self):
         filePath, _ = QFileDialog.getSaveFileName(
@@ -355,16 +487,42 @@ class SimuOMainWindow(QMainWindow):
         )
 
         if not filePath:
-            return
+            return False
 
         path = Path(filePath)
 
         if path.suffix.lower() != ".simuo":
             path = path.with_suffix(".simuO")
 
-        self.projectPath = path
+        return self.saveFile(destination=path)
 
-        self.saveFile()
+    def confirmUnsavedChanges(self, title):
+        hasUnsavedObjects = self.projectPath is None and self.scene.sceneHasObjects()
+        if not (self.scene.dirty or hasUnsavedObjects or self.temporaryParts.sources):
+            return True
+        message = "Save changes to the current scene before continuing?"
+        if self.temporaryParts.sources:
+            message += "\n\nYou will also choose permanent locations for its temporary parts."
+        answer = QMessageBox.question(
+            self, title, message,
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save,
+        )
+        if answer == QMessageBox.Save:
+            return self.saveFile()
+        return answer == QMessageBox.Discard
+
+    def confirmTemporaryParts(self, title):
+        return self.confirmUnsavedChanges(title)
+
+    def closeEvent(self, event):
+        if not self.confirmUnsavedChanges("Close Scene"):
+            event.ignore()
+            return
+        for window in list(self.renderWindows):
+            window.close()
+        self.temporaryParts.cleanup()
+        event.accept()
 
     # ---------------------------------------------------------
     # SET ROTATION TOOL
@@ -490,6 +648,7 @@ class SimuOMainWindow(QMainWindow):
             z = zInput.value()
 
             sceneObject.setRotation(x, y, z)
+            self.scene.dirty = True
 
             print(f"Rotated {sceneObject.name} to ({x}, {y}, {z})")
 
@@ -626,6 +785,7 @@ class SimuOMainWindow(QMainWindow):
             z = zInput.value()
 
             sceneObject.setPosition(x, y, z)
+            self.scene.dirty = True
 
             print(f"Moved {sceneObject.name} to ({x}, {y}, {z})")
 
@@ -647,19 +807,34 @@ class SimuOMainWindow(QMainWindow):
 
         fileMenu = self.menuBar().addMenu("File")
 
-        self.menuBar().addMenu("Edit")
+        self.renderAction = QAction("Render", self)
+        self.renderAction.setShortcut("Ctrl+R")
+        self.renderAction.setToolTip("Open a physics simulation of the current scene")
+        self.renderAction.triggered.connect(self.openPhysicsRender)
+        self.menuBar().addAction(self.renderAction)
 
-        self.menuBar().addMenu("Window")
+        windowMenu = self.menuBar().addMenu("Window")
+        # The dock is created after the viewport; connect its toggle below.
+        self.windowMenu = windowMenu
+        helpMenu = self.menuBar().addMenu("Help")
+        controlsAction = QAction("Controls", self)
+        controlsAction.triggered.connect(self.showControls)
+        helpMenu.addAction(controlsAction)
 
-        self.menuBar().addMenu("Help")
+        newMenu = fileMenu.addMenu("New")
+        newAction = QAction("Scene", self)
+        newAction.setShortcut("Ctrl+N")
+        newPartAction = QAction("Part", self)
+        newPartAction.triggered.connect(self.newPart)
+        newMenu.addAction(newAction)
+        newMenu.addAction(newPartAction)
 
-        newAction = QAction("New", self)
+        openAction = QAction("Open Project…", self)
+        openAction.setShortcut("Ctrl+O")
 
-        openAction = QAction("Open", self)
+        importAction = QAction("Import Part…", self)
 
-        importAction = QAction("Import", self)
-
-        saveAsAction = QAction("SaveAs", self)
+        saveAsAction = QAction("Save As…", self)
         saveAction = QAction("Save", self)
         saveAction.setShortcut("Ctrl+S")
 
@@ -679,8 +854,6 @@ class SimuOMainWindow(QMainWindow):
 
         saveAsAction.triggered.connect(self.saveAsFile)
 
-        fileMenu.addAction(newAction)
-
         fileMenu.addAction(openAction)
 
         fileMenu.addAction(importAction)
@@ -695,6 +868,19 @@ class SimuOMainWindow(QMainWindow):
     # ---------------------------------------------------------
     # LEFT TOOLBAR
     # ---------------------------------------------------------
+
+    def showControls(self):
+        QMessageBox.information(
+            self, "SimuO Controls",
+            "Import Part adds a model. Save stores your scene and its model references.\n\n"
+            "Camera: W/S forward/back, A/D left/right, Space/Ctrl up/down.\n"
+            "Left/Right arrows turn the camera left/right.\n"
+            "Hold the right mouse button and move the mouse to look around.\n"
+            "Esc closes the editor after checking for unsaved changes.\n\n"
+            "Use Reposition, Set Rotation, or Properties in the toolbar to edit an object.\n"
+            "File → New → Scene / Part creates a scene or part.\n"
+            "Ctrl+N: New Scene · Ctrl+O: Open Project · Ctrl+S: Save · Ctrl+Shift+S: Save As",
+        )
 
     def createToolbar(self):
 
@@ -715,12 +901,13 @@ class SimuOMainWindow(QMainWindow):
             ("Move", "✥"),
         ]
 
-        for index, (name, symbol) in enumerate(tools):
+        for name, symbol in tools:
             action = QAction(symbol, self)
 
-            action.setToolTip(name)
-
-            action.setCheckable(True)
+            implemented = name in ("Reposition", "Set Rotation")
+            action.setToolTip(name if implemented else f"{name} — unavailable")
+            action.setEnabled(implemented)
+            action.setCheckable(implemented)
 
             action.triggered.connect(lambda checked, n=name: self.toolSelected(n))
 
@@ -728,8 +915,109 @@ class SimuOMainWindow(QMainWindow):
 
             self.toolActions.append(action)
 
-            if index == 0:
-                action.setChecked(True)
+        toolbar.addSeparator()
+        self.propertiesAction = QAction("Properties", self)
+        self.propertiesAction.setToolTip("Edit dynamic/static behavior, bounce and starting velocity")
+        self.propertiesAction.triggered.connect(self.openPropertiesObjectList)
+        toolbar.addAction(self.propertiesAction)
+        self.deletePartAction = QAction("Delete Part", self)
+        self.deletePartAction.setToolTip("Choose a part to remove from this scene")
+        self.deletePartAction.triggered.connect(self.openDeletePartDialog)
+        toolbar.addAction(self.deletePartAction)
+
+    def openDeletePartDialog(self):
+        objects = [obj for obj in self.scene.objects if obj.name != "Axis"]
+        if not objects:
+            QMessageBox.information(self, "Delete Part", "There are no parts to delete.")
+            return
+        picker = QDialog(self)
+        picker.setWindowTitle("Delete Part")
+        layout = QVBoxLayout(picker)
+        layout.addWidget(QLabel("Choose the part to remove from this scene:"))
+        objectList = QListWidget()
+        objectList.addItems([obj.name for obj in objects])
+        objectList.setCurrentRow(0)
+        layout.addWidget(objectList)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        deleteButton = buttons.addButton("Delete", QDialogButtonBox.AcceptRole)
+        deleteButton.setAutoDefault(False)
+        deleteButton.setDefault(False)
+        objectList.currentRowChanged.connect(lambda row: deleteButton.setEnabled(row >= 0))
+        buttons.accepted.connect(picker.accept)
+        buttons.rejected.connect(picker.reject)
+        layout.addWidget(buttons)
+        if picker.exec() == QDialog.Accepted and objectList.currentRow() >= 0:
+            self.deleteScenePart(objects[objectList.currentRow()])
+
+    def deleteScenePart(self, sceneObject):
+        if sceneObject not in self.scene.objects or sceneObject.name == "Axis":
+            return
+        self.viewport.removeObject(sceneObject)
+        self.scene.objects.remove(sceneObject)
+        self.scene.dirty = True
+        path = sceneObject.meshPath
+        if self.temporaryParts.contains(path) and not any(
+            obj.meshPath is not None and Path(obj.meshPath).resolve() == Path(path).resolve()
+            for obj in self.scene.objects
+        ):
+            self.temporaryParts.release(path)
+        self.refreshTemporaryParts()
+        self.statusBar().showMessage(f"Removed {sceneObject.name} from the scene", 5000)
+
+    def openPropertiesObjectList(self):
+        objects = [obj for obj in self.scene.objects if obj.name != "Axis"]
+        if not objects:
+            QMessageBox.information(self, "Properties", "Import a part before editing its properties.")
+            return
+        if len(objects) == 1:
+            self.openPropertiesDialog(objects[0])
+            return
+        picker = QDialog(self)
+        picker.setWindowTitle("Choose Part — Properties")
+        layout = QVBoxLayout(picker)
+        layout.addWidget(QLabel("Choose the part whose properties you want to edit:"))
+        objectList = QListWidget()
+        objectList.addItems([obj.name for obj in objects])
+        objectList.setCurrentRow(0)
+        layout.addWidget(objectList)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(picker.accept)
+        buttons.rejected.connect(picker.reject)
+        objectList.itemDoubleClicked.connect(lambda item: picker.accept())
+        layout.addWidget(buttons)
+        if picker.exec() == QDialog.Accepted and objectList.currentRow() >= 0:
+            self.openPropertiesDialog(objects[objectList.currentRow()])
+
+    def openPropertiesDialog(self, sceneObject):
+        dialog = PropertiesDialog(sceneObject, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        bounce, velocity = dialog.values()
+        body_type = "dynamic" if dialog.dynamic.isChecked() else "static"
+        if (bounce != sceneObject.restitution or velocity != sceneObject.velocity
+                or body_type != sceneObject.body_type):
+            sceneObject.setPhysicsProperties(bounce, velocity, body_type)
+            self.scene.dirty = True
+            self.viewport.update()
+
+    def openPhysicsRender(self):
+        if not self.scene.objects:
+            QMessageBox.information(self, "Render Physics", "Import a part before rendering physics.")
+            return
+        try:
+            from physics_render import PhysicsRenderWindow
+            window = PhysicsRenderWindow(self.scene,self)
+        except ImportError as error:
+            QMessageBox.warning(self, "Cannot Render Physics",
+                                f"A physics dependency is missing: {error}\nInstall the project requirements and try again.")
+            return
+        except (ValueError, RuntimeError, OverflowError) as error:
+            QMessageBox.warning(self, "Cannot Render Physics", str(error))
+            return
+        self.renderWindows.append(window)
+        window.destroyed.connect(lambda: self.renderWindows.remove(window) if window in self.renderWindows else None)
+        window.show()
+
 
     def toolSelected(self, name):
 

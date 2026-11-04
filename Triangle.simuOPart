@@ -1,0 +1,66 @@
+{
+  "format": ".simuOPart",
+  "version": 2,
+  "id": "e3337e70-1532-435e-842f-3fae51e570dc",
+  "name": "New part",
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "time": "s"
+  },
+  "coordinates": {
+    "handedness": "right",
+    "up": "+Y"
+  },
+  "geometry": {
+    "type": "sketch",
+    "points": [
+      [
+        0.049,
+        0.053
+      ],
+      [
+        0.03225558886851768,
+        -0.14629782912982245
+      ],
+      [
+        -0.13196918851125766,
+        -0.03214782915363662
+      ]
+    ],
+    "closed": true,
+    "dimensions": [
+      0.2,
+      0.2,
+      0.2
+    ],
+    "thickness": 0.01
+  },
+  "appearance": {
+    "color": "#47b9d5"
+  },
+  "material": {
+    "name": "Default material",
+    "density": 1000,
+    "friction": 0.5,
+    "restitution": 0.2
+  },
+  "physics": {
+    "body_type": "dynamic",
+    "mass_source": "density",
+    "collider": "geometry"
+  },
+  "initial_state": {
+    "position": [
+      0,
+      1,
+      0
+    ],
+    "velocity": [
+      0,
+      0,
+      0
+    ]
+  },
+  "properties": {}
+}
