@@ -1,0 +1,144 @@
+{
+  "format": ".simuOPart",
+  "version": 3,
+  "id": "demo.feature-part",
+  "name": "Plane and face extrusion demo",
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "time": "s"
+  },
+  "coordinates": {
+    "handedness": "right",
+    "up": "+Y"
+  },
+  "geometry": {
+    "type": "feature_part",
+    "features": [
+      {
+        "id": "demo.base",
+        "name": "Base sketch",
+        "support": {
+          "type": "plane",
+          "name": "Top"
+        },
+        "sketch": {
+          "type": "sketch",
+          "points": [
+            [
+              -0.06,
+              -0.04
+            ],
+            [
+              0.06,
+              -0.04
+            ],
+            [
+              0.06,
+              0.04
+            ],
+            [
+              -0.06,
+              0.04
+            ]
+          ],
+          "closed": true,
+          "dimensions": [
+            0.12,
+            0.08,
+            null,
+            null
+          ],
+          "thickness": 0.01
+        },
+        "depth": 0.03,
+        "symmetric": false
+      },
+      {
+        "id": "demo.boss",
+        "name": "Face sketch",
+        "support": {
+          "type": "face",
+          "parent": "demo.base",
+          "label": "Face 4",
+          "frame": {
+            "origin": [
+              0.0,
+              0.030000000000000002,
+              0.0
+            ],
+            "u": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "v": [
+              0.0,
+              0.0,
+              -1.0
+            ]
+          }
+        },
+        "sketch": {
+          "type": "sketch",
+          "points": [
+            [
+              -0.025,
+              -0.01
+            ],
+            [
+              0.025,
+              -0.01
+            ],
+            [
+              0.025,
+              0.01
+            ],
+            [
+              -0.025,
+              0.01
+            ]
+          ],
+          "closed": true,
+          "dimensions": [
+            0.05,
+            0.02,
+            null,
+            null
+          ],
+          "thickness": 0.01
+        },
+        "depth": 0.02,
+        "symmetric": false
+      }
+    ]
+  },
+  "appearance": {
+    "color": "#47b9d5"
+  },
+  "material": {
+    "name": "Default material",
+    "density": 1000,
+    "friction": 0.5,
+    "restitution": 0.2
+  },
+  "physics": {
+    "body_type": "dynamic",
+    "mass_source": "density",
+    "collider": "geometry"
+  },
+  "initial_state": {
+    "position": [
+      0,
+      1,
+      0
+    ],
+    "velocity": [
+      0,
+      0,
+      0
+    ]
+  },
+  "properties": {},
+  "description": "A Top Plane base with an additive extrusion sketched on its upper face."
+}

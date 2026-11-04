@@ -1,15 +1,29 @@
-import customtkinter as ctk
+
+import argparse
+import os
+import sys
 from pathlib import Path
 
+# The camera uses pointer warping, which requires X11 (or XWayland).
+# Respect an explicitly selected Qt backend.
+if sys.platform.startswith("linux") and os.environ.get("DISPLAY"):
+    os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+
+import customtkinter as ctk
 from startMenu import showStartMenu
 from simuO import App
+from resources import resource_path
 
 
 def startup_menu():
+    """Run the modal Tk startup chooser and destroy its hidden root after selection or
+    closure.
+
+    Returns:
+        tuple: (action, filepath), with None values when no action/path was chosen.
+    """
     root = ctk.CTk()
 
-    # Hide the empty main CTk window.
-    # We only want the startup menu visible.
     root.withdraw()
 
     startup = {
@@ -18,23 +32,55 @@ def startup_menu():
     }
 
     def new_project():
+        """Record the startup choice to create an empty scene in the enclosing result
+        dictionary.
+
+        Returns:
+            None. Mutates captured startup state.
+        """
         startup["action"] = "new"
 
     def import_project(filepath):
+        """Record the chosen scene path and import action in the enclosing startup state.
+
+        Args:
+            filepath (str or Path): Selected scene or part file path.
+
+        Returns:
+            None. Mutates captured startup state.
+        """
         startup["action"] = "import"
         startup["filepath"] = filepath
 
-    logo_path = (
-        Path(__file__).resolve().parent.parent
-        / "Images"
-        / "simuo_logo.png"
-    )
+    def new_part():
+        """Record the startup choice to create a new editable part.
+
+        Returns:
+            None. Mutates captured startup state.
+        """
+        startup["action"] = "new_part"
+
+    def open_part(filepath):
+        """Record the chosen part path and open-part action in the enclosing startup state.
+
+        Args:
+            filepath (str or Path): Selected scene or part file path.
+
+        Returns:
+            None. Mutates captured startup state.
+        """
+        startup["action"] = "open_part"
+        startup["filepath"] = filepath
+
+    logo_path = resource_path("Images", "simuo_logo.png")
 
     menu = showStartMenu(
         parent=root,
         logo_path=logo_path,
         on_new=new_project,
         on_import=import_project,
+        on_new_part=new_part,
+        on_open_part=open_part,
     )
 
     # Wait until the startup menu closes.
@@ -49,10 +95,35 @@ def startup_menu():
 
 
 def main():
-    action, filepath = startup_menu()
+    """Parse command-line options, choose the scene/part editor or startup menu, and start
+    the selected application.
+
+    Returns:
+        int or None: Editor event-loop exit code, or None if the startup chooser was
+        closed without a selection.
+    """
+    parser = argparse.ArgumentParser(description="SimuO scene and part editors")
+    parser.add_argument("project", nargs="?", help=".simuO scene or .simuOPart to open")
+    parser.add_argument("--new", action="store_true", help="open a new scene directly")
+    parser.add_argument("--part-editor", action="store_true", help="open the part sketch editor (optionally supply a .simuOPart)")
+    args = parser.parse_args()
+    if args.part_editor:
+        action,filepath = "open_part" if args.project else "new_part",args.project
+    elif args.project and Path(args.project).suffix.lower()==".simuopart":
+        action,filepath = "open_part",args.project
+    elif args.project:
+        action, filepath = "import", args.project
+    elif args.new:
+        action, filepath = "new", None
+    else:
+        action, filepath = startup_menu()
 
     if action is None:
         return
+
+    if action in ("new_part","open_part"):
+        from part_editor import run_part_editor
+        return run_part_editor(filepath)
 
     if action == "new":
         print("Creating new SimuO build")
@@ -63,8 +134,8 @@ def main():
         print("Opening project:", filepath)
 
         app = App(projectPath=filepath)
-    app.run()
+    return app.run()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

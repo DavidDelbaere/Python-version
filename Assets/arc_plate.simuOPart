@@ -1,0 +1,68 @@
+{
+  "format": ".simuOPart",
+  "version": 2,
+  "id": "example.arc-plate",
+  "name": "Arc plate",
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "time": "s"
+  },
+  "coordinates": {
+    "handedness": "right",
+    "up": "+Y"
+  },
+  "geometry": {
+    "type": "sketch",
+    "points": [
+      [
+        -0.05,
+        0
+      ],
+      [
+        0.05,
+        0
+      ]
+    ],
+    "closed": true,
+    "dimensions": [
+      0.05,
+      null
+    ],
+    "thickness": 0.01,
+    "arcs": [
+      {
+        "bulge": -1.0
+      },
+      null
+    ]
+  },
+  "appearance": {
+    "color": "#47b9d5"
+  },
+  "material": {
+    "name": "Default material",
+    "density": 1000,
+    "friction": 0.5,
+    "restitution": 0.2
+  },
+  "physics": {
+    "body_type": "dynamic",
+    "mass_source": "density",
+    "collider": "geometry"
+  },
+  "initial_state": {
+    "position": [
+      0,
+      1,
+      0
+    ],
+    "velocity": [
+      0,
+      0,
+      0
+    ]
+  },
+  "properties": {},
+  "description": "A semicircular plate with an editable R50 mm arc and 10 mm thickness."
+}

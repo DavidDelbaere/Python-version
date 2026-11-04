@@ -1,4 +1,3 @@
-from pathlib import Path
 import math
 import time
 import ctypes
@@ -12,6 +11,8 @@ from OpenGL.GL.shaders import compileProgram, compileShader
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtGui import QCursor
+
+from part_assets import loadObjFlatShaded  # Compatibility export for existing callers
 
 
 AXIS_VERTEX_SHADER = """
@@ -79,6 +80,7 @@ in vec3 frag_position;
 in vec3 frag_normal;
 
 uniform vec3 camera_position;
+uniform vec3 base_color;
 
 out vec4 frag_color;
 
@@ -97,9 +99,6 @@ void main()
     float brightness =
         min(ambient + diffuse * 0.82, 1.0);
 
-    vec3 base_color =
-        vec3(0.72, 0.76, 0.82);
-
     frag_color =
         vec4(base_color * brightness, 1.0);
 }
@@ -110,6 +109,16 @@ def createAxisLines(
     ,
     tickSize=0.15
 ):
+    """Generate three world axes with integer-spaced tick marks for GL_LINES.
+
+    Args:
+        minimum (int): Lowest world-axis coordinate and first integer tick.
+        maximum (int): Highest world-axis coordinate and last integer tick, inclusive.
+        tickSize (float): Half-length of each axis tick in world units.
+
+    Returns:
+        numpy.ndarray: Flat float32 XYZ positions, two vertices per line segment.
+    """
     vertices = []
 
     # -------------------------------------------------
@@ -174,120 +183,16 @@ def createAxisLines(
         dtype=np.float32
     )
 
-def loadObjFlatShaded(filename):
-    positions = []
-    output = []
-
-    with open(
-        filename,
-        "r",
-        encoding="utf-8",
-        errors="ignore"
-    ) as file:
-
-        for line in file:
-            data = line.split()
-
-            if not data:
-                continue
-
-            if data[0] == "v":
-                positions.append(
-                    np.array(
-                        [
-                            float(data[1]),
-                            float(data[2]),
-                            float(data[3]),
-                        ],
-                        dtype=np.float32,
-                    )
-                )
-
-            elif data[0] == "f":
-                indices = []
-
-                for token in data[1:]:
-                    vertex_index = int(
-                        token.split("/")[0]
-                    )
-
-                    if vertex_index < 0:
-                        vertex_index = (
-                            len(positions)
-                            + vertex_index
-                        )
-                    else:
-                        vertex_index -= 1
-
-                    indices.append(
-                        vertex_index
-                    )
-
-                # Convert polygon faces to triangles.
-                for i in range(
-                    1,
-                    len(indices) - 1
-                ):
-                    p0 = positions[
-                        indices[0]
-                    ]
-
-                    p1 = positions[
-                        indices[i]
-                    ]
-
-                    p2 = positions[
-                        indices[i + 1]
-                    ]
-
-                    edge1 = p1 - p0
-                    edge2 = p2 - p0
-
-                    normal = np.cross(
-                        edge1,
-                        edge2
-                    )
-
-                    length = np.linalg.norm(
-                        normal
-                    )
-
-                    if length > 0.0:
-                        normal = (
-                            normal / length
-                        )
-                    else:
-                        normal = np.array(
-                            [0.0, 1.0, 0.0],
-                            dtype=np.float32,
-                        )
-
-                    for point in (
-                        p0,
-                        p1,
-                        p2
-                    ):
-                        output.extend(
-                            [
-                                point[0],
-                                point[1],
-                                point[2],
-                                normal[0],
-                                normal[1],
-                                normal[2],
-                            ]
-                        )
-
-    return np.asarray(
-        output,
-        dtype=np.float32,
-    )
-
-
 class Camera:
     def __init__(self):
         
         
+        """Initialize camera position and Euler view angles, then compute its viewing
+        basis.
+
+        Returns:
+            None.
+        """
         self.position = glm.vec3(
             0.0,
             2.0,
@@ -324,6 +229,11 @@ class Camera:
         self.update_vectors()
 
     def update_vectors(self):
+        """Recompute normalized forward, right, and up vectors from yaw/pitch in degrees.
+
+        Returns:
+            None. Mutates the camera basis.
+        """
         yaw = math.radians(
             self.yaw
         )
@@ -366,6 +276,18 @@ class Camera:
         dy,
         sensitivity=0.12
     ):
+        """Apply pointer deltas to yaw/pitch, clamp pitch to avoid flipping, and rebuild
+        the basis.
+
+        Args:
+            dx (float): Horizontal pointer displacement in pixels.
+            dy (float): Vertical pointer displacement in pixels, positive for upward
+                look.
+            sensitivity (float): Degrees of rotation per pointer pixel.
+
+        Returns:
+            None. Mutates camera angles and vectors.
+        """
         self.yaw += (
             dx * sensitivity
         )
@@ -385,6 +307,11 @@ class Camera:
         self.update_vectors()
 
     def view_matrix(self):
+        """Build the camera's world-to-view transform from position and basis.
+
+        Returns:
+            glm.mat4: Look-at view matrix.
+        """
         return glm.lookAt(
             self.position,
             self.position
@@ -403,6 +330,18 @@ class OpenGLViewport(QOpenGLWidget):
 
             
         
+        """Initialize viewport input/camera state and a repaint timer; GPU allocation is
+        deferred until initializeGL.
+
+        Args:
+            parent (widget, optional): Owning Qt or Tk widget; None creates an
+                independent Qt widget.
+            scene (Scene, optional): Scene to display/use; None uses the constructor's
+                empty or unbound default.
+
+        Returns:
+            None.
+        """
         self.axisShader = None
         self.axisVAO = None
         self.axisVBO = None
@@ -460,6 +399,12 @@ class OpenGLViewport(QOpenGLWidget):
 
             
     def clearRenderObjects(self):
+        """Acquire the GL context, delete all uploaded object VAOs/VBOs, clear render
+        records, and repaint.
+
+        Returns:
+            None. Leaves the CPU scene and axis resources intact.
+        """
         self.makeCurrent()
 
         for renderObject in self.renderObjects:
@@ -487,90 +432,108 @@ class OpenGLViewport(QOpenGLWidget):
 
         self.update()
         
-    def addNewObject(self, object):
-        meshPath = Path(
-            object.meshPath
-        )
-        self.makeCurrent()
-        
-        if not meshPath.exists():
-            self.doneCurrent()
-            raise FileNotFoundError(
+    def removeObject(self, sceneObject):
+        """Release uploaded buffers for an instance using the current widget context and
+        remove its render records.
 
-                f"Could not find OBJ at {meshPath}"
-            )
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
 
+        Returns:
+            None. Leaves the CPU scene list unchanged and schedules a repaint.
+        """
+        removed = [obj for obj in self.renderObjects if obj["SceneObject"] is sceneObject]
+        if removed:
+            self.makeCurrent()
+            try:
+                for obj in removed:
+                    glDeleteVertexArrays(1, [obj["vao"]])
+                    glDeleteBuffers(1, [obj["vbo"]])
+                    self.renderObjects.remove(obj)
+            finally:
+                self.doneCurrent()
+        self.update()
 
-        vertexData = loadObjFlatShaded(meshPath)
+    def _uploadObject(self, sceneObject):
+        """Upload validated CPU position/normal data and append a VAO/VBO render record.
+        The caller must own a current OpenGL context.
 
-        vertexCount = (
-            len(vertexData) // 6
-        )
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
 
-        print(
-            f"Loaded {vertexCount:,} vertices for {object.name}"
-        )
-
+        Returns:
+            None. Allocates GPU resources; partial allocations are released if setup
+            fails.
+        """
+        vertexData = sceneObject.asset.vertices
         vao = glGenVertexArrays(1)
-
-        glBindVertexArray(
-            vao
-        )
-
         vbo = glGenBuffers(1)
-
-        glBindBuffer(
-            GL_ARRAY_BUFFER,
-            vbo
-        )
-        glBufferData(
-            GL_ARRAY_BUFFER,
-            vertexData.nbytes,
-            vertexData,
-            GL_STATIC_DRAW,
-        )
-
-        stride = (
-            6 * vertexData.itemsize
-        )
-        
-        glEnableVertexAttribArray(
-            0
-        )
-        glVertexAttribPointer(
-            0,
-            3,
-            GL_FLOAT,
-            GL_FALSE,
-            stride,
-            ctypes.c_void_p(0)
-        )
-
-        # Normal 
-        glEnableVertexAttribArray(1)
-        
-        glVertexAttribPointer(
-            1,
-            3,
-            GL_FLOAT,
-            GL_FALSE,
-            stride,
-            ctypes.c_void_p(
-                3 * vertexData.itemsize
-            )
-        )
-
-        glBindVertexArray(0)
+        try:
+            glBindVertexArray(vao)
+            glBindBuffer(GL_ARRAY_BUFFER, vbo)
+            glBufferData(GL_ARRAY_BUFFER, vertexData.nbytes, vertexData, GL_STATIC_DRAW)
+            stride = 6 * vertexData.itemsize
+            for location, offset in ((0, 0), (1, 3 * vertexData.itemsize)):
+                glEnableVertexAttribArray(location)
+                glVertexAttribPointer(location, 3, GL_FLOAT, GL_FALSE, stride,
+                                      ctypes.c_void_p(offset))
+            glBindVertexArray(0)
+        except Exception:
+            glDeleteBuffers(1, [vbo])
+            glDeleteVertexArrays(1, [vao])
+            raise
         self.renderObjects.append({
-            "SceneObject": object,
-            "vao": vao,
-            "vbo": vbo,
-            "vertexCount": vertexCount
+            "SceneObject": sceneObject, "vao": vao, "vbo": vbo,
+            "vertexCount": len(vertexData) // 6,
         })
-        
-        self.doneCurrent()
-        self.update()   
+        print(f"Loaded {len(vertexData) // 6:,} vertices for {sceneObject.name}")
+
+    def addNewObject(self, sceneObject):
+        """Acquire the viewport's GL context, upload one instance, then schedule repaint.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Adds GPU render records without adding the instance to the scene list.
+        """
+        self.makeCurrent()
+        try:
+            self._uploadObject(sceneObject)
+        finally:
+            self.doneCurrent()
+        self.update()
+
+    def frameObject(self, sceneObject):
+        """Position the camera around scaled/translated local mesh bounds so SI-sized
+        assets are visible without resizing them. Bounds do not include instance
+        rotation.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Updates camera position/orientation and repaints.
+        """
+        points = sceneObject.asset.vertices.reshape(-1, 6)[:, :3]
+        low, high = points.min(axis=0), points.max(axis=0)
+        center = (low + high) / 2 * np.asarray(sceneObject.scale)
+        radius = float(np.linalg.norm((high-low) * np.asarray(sceneObject.scale))) / 2
+        distance = max(0.5, radius * 3)
+        target = glm.vec3(*(center + np.asarray(sceneObject.position)))
+        self.camera.position = target + glm.vec3(0, distance * 0.35, distance)
+        self.camera.yaw = -90.0
+        self.camera.pitch = -math.degrees(math.atan(0.35))
+        self.camera.update_vectors()
+        self.update()
+
     def initializeGL(self):
+        """Enable depth testing, compile shaders, create axis buffers, and upload existing
+        scene assets under Qt's current GL context.
+
+        Returns:
+            None. Initializes GPU handles and cached uniform locations.
+        """
         print(
             "initializeGL called"
         )
@@ -643,6 +606,8 @@ class OpenGLViewport(QOpenGLWidget):
             )
         )
 
+        self.color_location = glGetUniformLocation(self.shader, "base_color")
+
         axisData = createAxisLines(-2000,2000)
         
         self.axisVertexCount  = len(axisData) // 3
@@ -686,81 +651,8 @@ class OpenGLViewport(QOpenGLWidget):
 
         if self.scene is not None:
             for sceneObject in self.scene.objects:
-                
-                meshPath = Path(sceneObject.meshPath)
-                
-                if not meshPath.exists():
-                    raise FileNotFoundError(
-                        f"Could not find OBJ at {meshPath}"
-                    )
-                    continue 
-                
-                vertexData = loadObjFlatShaded(meshPath)
-                
-                vertexCount = (
-                    len(vertexData) // 6
-                )
-                
-                print(
-                    f"Loaded {vertexCount:,} vertices for {sceneObject.name}"
-                )
-                vao = glGenVertexArrays(1)
-                
-                glBindVertexArray(vao)
-                
-                vbo = glGenBuffers(1)
-                
-                glBindBuffer(
-                    GL_ARRAY_BUFFER,
-                    vbo
-                )
-                glBufferData(
-                    GL_ARRAY_BUFFER,
-                    vertexData.nbytes,
-                    vertexData,
-                    GL_STATIC_DRAW,
-                )
-                
-                stride = (
-                    6 * vertexData.itemsize
-                    
-                )
-                glEnableVertexAttribArray(
-                    0
-                )
+                self._uploadObject(sceneObject)
 
-                glVertexAttribPointer(
-                    0,
-                    3,
-                    GL_FLOAT,
-                    GL_FALSE,
-                    stride,
-                    ctypes.c_void_p(0)
-                )
-                glEnableVertexAttribArray(1)
-                
-                
-                glVertexAttribPointer(
-                    1,
-                    3,
-                    GL_FLOAT,
-                    GL_FALSE,
-                    stride,
-                    ctypes.c_void_p(
-                        3*vertexData.itemsize
-                    )
-                    )
-                
-                glBindVertexArray(0)
-                
-                self.renderObjects.append({
-                    "SceneObject": sceneObject,
-                    "vao": vao,
-                    "vbo": vbo,
-                    "vertexCount": vertexCount
-                }   
-                )
-                
         print(
             "OpenGL viewport initialized"
         )
@@ -771,6 +663,15 @@ class OpenGLViewport(QOpenGLWidget):
         width,
         height
     ):
+        """Set the physical-pixel GL viewport using the widget's device-pixel ratio.
+
+        Args:
+            width (int): Widget/window width in logical pixels.
+            height (int): Widget/window height in logical pixels.
+
+        Returns:
+            None. Updates GL viewport dimensions with a minimum of one pixel.
+        """
         ratio = (
             self.devicePixelRatioF()
         )
@@ -799,6 +700,12 @@ class OpenGLViewport(QOpenGLWidget):
     # ---------------------------------------------------------
 
     def paintGL(self):
+        """Update camera movement, clear buffers, and draw axes and uploaded triangles
+        using current instance transforms and colors.
+
+        Returns:
+            None. Draws one frame; geometry remains in static GPU buffers.
+        """
         current_time = (
             time.perf_counter()
         )
@@ -973,6 +880,8 @@ class OpenGLViewport(QOpenGLWidget):
                 ]
             )
 
+            glUniform3f(self.color_location, *sceneObject.asset.color)
+
             model = glm.mat4(
                 1.0
             )
@@ -1071,6 +980,19 @@ class OpenGLViewport(QOpenGLWidget):
         self,
         delta_time
     ):
+        """Move and turn the camera from held keys, scaling speeds by elapsed time.
+
+        Args:
+            delta_time (float): Elapsed frame time in seconds used to scale movement.
+
+        Returns:
+            None. Updates camera position and viewing basis.
+        """
+        turn = int(Qt.Key_Right in self.keys) - int(Qt.Key_Left in self.keys)
+        if turn:
+            self.camera.yaw += turn * 90.0 * delta_time
+            self.camera.update_vectors()
+
         speed = (
             10.0
             * delta_time
@@ -1116,6 +1038,16 @@ class OpenGLViewport(QOpenGLWidget):
         self,
         event
     ):
+        """Track a pressed key for continuous movement and request window closure on
+        Escape.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Mutates held-key state.
+        """
         self.keys.add(
             event.key()
         )
@@ -1130,11 +1062,52 @@ class OpenGLViewport(QOpenGLWidget):
         self,
         event
     ):
+        """Remove a released key from held state, ignoring synthetic auto-repeat releases.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None.
+        """
+        if event.isAutoRepeat():
+            return
         self.keys.discard(
             event.key()
         )
 
+    def focusOutEvent(self, event):
+        # File dialogs and switching applications can swallow key-up events.
+        """Clear held keys and release mouse capture/cursor hiding when the viewport loses
+        focus.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Delegates the focus event after resetting input state.
+        """
+        self.keys.clear()
+        if self.right_mouse_down:
+            self.right_mouse_down = False
+            self.ignore_center_event = False
+            self.releaseMouse()
+            self.unsetCursor()
+        super().focusOutEvent(event)
+
     def mousePressEvent(self, event):
+        """Begin captured right-button mouse look, hide the cursor, and recenter the
+        pointer.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Updates capture and synthetic-center-event state.
+        """
         if event.button() == Qt.RightButton:
             self.right_mouse_down = True
 
@@ -1146,6 +1119,15 @@ class OpenGLViewport(QOpenGLWidget):
             self.ignore_center_event = True
             self.center_mouse()
     def mouseReleaseEvent(self, event):
+        """End right-button mouse look and restore normal pointer capture/appearance.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None.
+        """
         if event.button() == Qt.RightButton:
             self.right_mouse_down = False
 
@@ -1155,6 +1137,16 @@ class OpenGLViewport(QOpenGLWidget):
             self.unsetCursor()
             
     def mouseMoveEvent(self, event):
+        """Rotate from pointer displacement relative to center during mouse look, ignoring
+        recenter-generated events.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Updates camera orientation and recenters the pointer.
+        """
         if not self.right_mouse_down:
             return
 
@@ -1192,6 +1184,11 @@ class OpenGLViewport(QOpenGLWidget):
         self.center_mouse()
         
     def center_mouse(self):
+        """Warp the system pointer to the widget center in global screen coordinates.
+
+        Returns:
+            None. Changes the desktop cursor position.
+        """
         center = self.rect().center()
 
         global_center = self.mapToGlobal(

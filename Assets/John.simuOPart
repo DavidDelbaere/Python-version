@@ -1,0 +1,71 @@
+{
+  "format": ".simuOPart",
+  "version": 2,
+  "id": "06d4831f-a865-4f02-90a5-1d37f6369a44",
+  "name": "John",
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "time": "s"
+  },
+  "coordinates": {
+    "handedness": "right",
+    "up": "+Y"
+  },
+  "geometry": {
+    "type": "sketch",
+    "points": [
+      [
+        0.048999999999999995,
+        0.04499999999999994
+      ],
+      [
+        0.048999999999999995,
+        -0.15499999999999997
+      ],
+      [
+        0.3489999999999999,
+        -0.15500000000000005
+      ],
+      [
+        0.349,
+        0.04500000000000001
+      ]
+    ],
+    "closed": true,
+    "dimensions": [
+      null,
+      null,
+      0.2,
+      null
+    ],
+    "thickness": 0.02
+  },
+  "appearance": {
+    "color": "#47b9d5"
+  },
+  "material": {
+    "name": "Default material",
+    "density": 1000,
+    "friction": 0.5,
+    "restitution": 0.2
+  },
+  "physics": {
+    "body_type": "dynamic",
+    "mass_source": "density",
+    "collider": "geometry"
+  },
+  "initial_state": {
+    "position": [
+      0,
+      1,
+      0
+    ],
+    "velocity": [
+      0,
+      0,
+      0
+    ]
+  },
+  "properties": {}
+}

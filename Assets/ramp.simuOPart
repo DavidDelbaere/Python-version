@@ -1,0 +1,102 @@
+{
+  "format": ".simuOPart",
+  "version": 3,
+  "id": "382786e7-62b0-4d4a-9f56-f4b34a8ca31c",
+  "name": "ramp",
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "time": "s"
+  },
+  "coordinates": {
+    "handedness": "right",
+    "up": "+Y"
+  },
+  "geometry": {
+    "type": "feature_part",
+    "features": [
+      {
+        "id": "57d5dd4d-1277-4fe7-befc-eedbc41d7aa9",
+        "name": "Sketch 1",
+        "support": {
+          "type": "plane",
+          "name": "Front"
+        },
+        "sketch": {
+          "type": "sketch",
+          "points": [
+            [
+              1.4297812490542198e-15,
+              -6.238065619612598e-15
+            ],
+            [
+              5.000000000000005,
+              4.9999999999999964
+            ],
+            [
+              5.000000000000003,
+              -3.851086116668512e-15
+            ]
+          ],
+          "closed": true,
+          "dimensions": [
+            null,
+            null,
+            5.0
+          ],
+          "thickness": 0.01,
+          "constraints": [
+            {
+              "type": "horizontal",
+              "segments": [
+                2
+              ]
+            },
+            {
+              "type": "vertical",
+              "segments": [
+                1
+              ]
+            },
+            {
+              "type": "equal",
+              "segments": [
+                1,
+                2
+              ]
+            }
+          ]
+        },
+        "depth": 5.0,
+        "symmetric": false
+      }
+    ]
+  },
+  "appearance": {
+    "color": "#47b9d5"
+  },
+  "material": {
+    "name": "Default material",
+    "density": 1000,
+    "friction": 0.5,
+    "restitution": 0.2
+  },
+  "physics": {
+    "body_type": "dynamic",
+    "mass_source": "density",
+    "collider": "geometry"
+  },
+  "initial_state": {
+    "position": [
+      0,
+      1,
+      0
+    ],
+    "velocity": [
+      0,
+      0,
+      0
+    ]
+  },
+  "properties": {}
+}

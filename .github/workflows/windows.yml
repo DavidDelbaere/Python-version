@@ -1,0 +1,68 @@
+name: Windows compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: SimuO Windows
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: SimuO Windows
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: SimuO Windows/requirements.txt
+      # Hosted Windows images include MSVC; pybullet is built from source.
+      - name: Install application and build dependencies
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python.exe -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python.exe -m pip check
+      - name: Editor, file safety, portability and physics tests
+        run: .venv\Scripts\python.exe -m unittest discover -s Testing/Developer_Tests -v
+      - name: Independent lab tests
+        run: .venv\Scripts\python.exe -m unittest discover -s Testing/Part_Playground -v
+      - name: Launcher from another working directory
+        run: |
+          $launcher = Join-Path $PWD 'Testing/Tools/run.bat'
+          Push-Location $env:RUNNER_TEMP
+          try {
+            & $launcher --help
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Pop-Location }
+      - name: Build native Windows executable
+        run: .venv\Scripts\python.exe -m PyInstaller --noconfirm src/main.spec
+      - name: Packaged executable startup
+        run: |
+          $exe = Join-Path $PWD 'dist\SimuO.exe'
+          $process = Start-Process -FilePath $exe -ArgumentList '--help' -WorkingDirectory $env:RUNNER_TEMP -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Packaged startup timed out'
+          }
+          if ($process.ExitCode -ne 0) { throw "Packaged startup failed: $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SimuO-Windows-x64
+          path: SimuO Windows/dist/SimuO.exe
+          if-no-files-found: error
