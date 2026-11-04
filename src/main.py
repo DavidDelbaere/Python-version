@@ -16,6 +16,12 @@ from resources import resource_path
 
 
 def startup_menu():
+    """Run the modal Tk startup chooser and destroy its hidden root after selection or
+    closure.
+
+    Returns:
+        tuple: (action, filepath), with None values when no action/path was chosen.
+    """
     root = ctk.CTk()
 
     root.withdraw()
@@ -26,16 +32,43 @@ def startup_menu():
     }
 
     def new_project():
+        """Record the startup choice to create an empty scene in the enclosing result
+        dictionary.
+
+        Returns:
+            None. Mutates captured startup state.
+        """
         startup["action"] = "new"
 
     def import_project(filepath):
+        """Record the chosen scene path and import action in the enclosing startup state.
+
+        Args:
+            filepath (str or Path): Selected scene or part file path.
+
+        Returns:
+            None. Mutates captured startup state.
+        """
         startup["action"] = "import"
         startup["filepath"] = filepath
 
     def new_part():
+        """Record the startup choice to create a new editable part.
+
+        Returns:
+            None. Mutates captured startup state.
+        """
         startup["action"] = "new_part"
 
     def open_part(filepath):
+        """Record the chosen part path and open-part action in the enclosing startup state.
+
+        Args:
+            filepath (str or Path): Selected scene or part file path.
+
+        Returns:
+            None. Mutates captured startup state.
+        """
         startup["action"] = "open_part"
         startup["filepath"] = filepath
 
@@ -62,6 +95,13 @@ def startup_menu():
 
 
 def main():
+    """Parse command-line options, choose the scene/part editor or startup menu, and start
+    the selected application.
+
+    Returns:
+        int or None: Editor event-loop exit code, or None if the startup chooser was
+        closed without a selection.
+    """
     parser = argparse.ArgumentParser(description="SimuO scene and part editors")
     parser.add_argument("project", nargs="?", help=".simuO scene or .simuOPart to open")
     parser.add_argument("--new", action="store_true", help="open a new scene directly")

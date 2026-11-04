@@ -7,6 +7,18 @@ from PySide6.QtWidgets import (
 
 class PropertiesDialog(QDialog):
     def __init__(self, scene_object, parent=None):
+        """Build instance body-type, bounce, and velocity controls without mutating the
+        source object.
+
+        Args:
+            scene_object (SceneObject): Instance whose current effective properties
+                initialize the dialog.
+            parent (widget, optional): Owning Qt or Tk widget; None creates an
+                independent Qt widget.
+
+        Returns:
+            None. Creates controls initialized from effective instance properties.
+        """
         super().__init__(parent)
         self.setWindowTitle(f"Properties — {scene_object.name}")
         self.setMinimumWidth(390)
@@ -62,10 +74,27 @@ class PropertiesDialog(QDialog):
         layout.addWidget(buttons)
 
     def _markBounceChanged(self, value):
+        """Record that bounce was edited so untouched file precision can otherwise be
+        preserved.
+
+        Args:
+            value (float): New bounce-control signal value; only the fact that it
+                changed is used.
+
+        Returns:
+            None. Sets the bounce-changed flag.
+        """
         self._bounceChanged = True
 
     def values(self):
         # Preserve file precision for controls the user did not edit.
+        """Read edited bounce and velocity controls, preserving original precision for
+        untouched fields. Body type is read separately from the checkbox.
+
+        Returns:
+            tuple: Bounce float and three-component velocity list in m/s; does not apply
+            them to the object.
+        """
         bounce = self.bounce.value() if self._bounceChanged else self._originalBounce
         velocity = [control.value() if i in self._velocityChanged else self._originalVelocity[i]
                     for i, control in enumerate(self.velocity)]

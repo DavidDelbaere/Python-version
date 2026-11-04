@@ -15,6 +15,15 @@ PLANES = {
 
 
 def validate_frame(frame):
+    """Check finite bounded origin/axes and orthogonal unit sketch axes.
+
+    Args:
+        frame (dict): Metre-valued origin and orthogonal unit axes u/v defining a sketch
+            plane.
+
+    Returns:
+        dict: Original frame; raises ValueError for an invalid frame.
+    """
     if not isinstance(frame,dict) or set(frame)!={"origin","u","v"}:
         raise ValueError("A sketch frame needs origin, u and v")
     for value in frame.values():
@@ -27,6 +36,16 @@ def validate_frame(frame):
 
 
 def support_frame(support):
+    """Resolve a reference plane or validate a saved face frame.
+
+    Args:
+        support (dict): Named reference-plane support or face support with parent ID,
+            label, and frame.
+
+    Returns:
+        dict: Independent reference-plane frame, or the validated face frame from the
+        support.
+    """
     if not isinstance(support,dict):
         raise ValueError("Select a reference plane or a flat face")
     if support.get("type")=="plane" and set(support)=={"type","name"} and support["name"] in PLANES:
@@ -39,17 +58,48 @@ def support_frame(support):
 
 
 def to_world(points,frame):
+    """Map planar coordinates into 3D using the frame origin and axes.
+
+    Args:
+        points (array-like): Planar XY coordinates in metres, reshapeable to (N, 2).
+        frame (dict): Metre-valued origin and orthogonal unit axes u/v defining a sketch
+            plane.
+
+    Returns:
+        numpy.ndarray: Shape (N, 3) world points in metres.
+    """
     points = np.asarray(points,dtype=float).reshape(-1,2)
     return np.asarray(frame["origin"])+points[:,:1]*frame["u"]+points[:,1:]*frame["v"]
 
 
 def to_plane(points,frame):
+    """Project 3D points into a frame's two orthogonal sketch axes.
+
+    Args:
+        points (array-like): World coordinates in metres with final dimension 3.
+        frame (dict): Metre-valued origin and orthogonal unit axes u/v defining a sketch
+            plane.
+
+    Returns:
+        numpy.ndarray: Coordinates with the input's leading dimensions and a final
+        dimension of 2.
+    """
     delta = np.asarray(points)-np.asarray(frame["origin"])
     return np.stack((delta @ frame["u"],delta @ frame["v"]),axis=-1)
 
 
 def planar_faces(vertices):
-    """Connected coplanar mesh triangles become selectable planar faces."""
+    """Group edge-connected coplanar triangles into selectable faces and extract their
+    boundaries.
+
+    Args:
+        vertices (array-like): Interleaved triangle XYZ/normal data, reshapeable to
+            (triangle_count, 3, 6).
+
+    Returns:
+        list: Face dictionaries containing label, triangles, normal, frame, and boundary
+        edges; empty for an empty mesh.
+    """
     triangles = np.asarray(vertices).reshape(-1,3,6)[:,:,:3].astype(float)
     if not len(triangles):
         return []
@@ -98,6 +148,16 @@ def planar_faces(vertices):
 
 class FeatureModel:
     def __init__(self,features=None):
+        """Copy feature history and initialize empty derived mesh, face, and volume data.
+        Call build to evaluate the history.
+
+        Args:
+            features (list, optional): Feature dictionaries to deep-copy; None creates
+                empty history.
+
+        Returns:
+            None.
+        """
         self.features = copy.deepcopy(features or [])
         self.vertices = np.empty(0,dtype=np.float32)
         self.faces = []
@@ -105,20 +165,50 @@ class FeatureModel:
 
     @property
     def has_solid(self):
+        """Check whether a built display mesh exists.
+
+        Returns:
+            bool: True when the vertex buffer is nonempty.
+        """
         return bool(self.vertices.size)
 
     @property
     def size(self):
+        """Measure the built mesh's axis-aligned bounding-box dimensions.
+
+        Returns:
+            tuple: XYZ extents in metres, or (0.001, 0.001, 0.001) for a draft.
+        """
         return tuple(np.ptp(self.vertices.reshape(-1,6)[:,:3],axis=0)) if self.has_solid else (.001,.001,.001)
 
     @property
     def last_extrusion(self):
+        """Find the last feature with an extrusion depth in history order.
+
+        Returns:
+            str or None: Feature ID, or None if no extrusion exists.
+        """
         return next((f["id"] for f in reversed(self.features) if f["depth"] is not None),None)
 
     def geometry(self):
+        """Serialize the editable feature history without derived mesh data.
+
+        Returns:
+            dict: feature_part geometry with a deep copy of the feature list.
+        """
         return {"type":"feature_part","features":copy.deepcopy(self.features)}
 
     def new_sketch(self,support):
+        """Validate a support and append an empty sketch feature with a new UUID. Does not
+        build the model.
+
+        Args:
+            support (dict): Named reference-plane support or face support with parent
+                ID, label, and frame.
+
+        Returns:
+            dict: Newly appended feature, also owned by this model.
+        """
         support_frame(support)
         feature = {"id":str(uuid.uuid4()),"name":f"Sketch {len(self.features)+1}",
                    "support":copy.deepcopy(support),"sketch":Sketch().geometry(),"depth":None,"symmetric":False}
@@ -126,6 +216,13 @@ class FeatureModel:
         return feature
 
     def build(self):
+        """Validate ordered features and rebuild one connected solid with manifold3d.
+        Updates volume, float32 triangles/normals, and double-precision face supports;
+        invalid history or geometry raises ValueError.
+
+        Returns:
+            FeatureModel: This model after rebuilding; a draft can have no solid.
+        """
         if len(self.features)>64:
             raise ValueError("This editor supports up to 64 sketches")
         solid = None
@@ -227,16 +324,40 @@ class FeatureModel:
 
     @classmethod
     def from_geometry(cls,g):
+        """Validate a feature_part geometry envelope and evaluate its history.
+
+        Args:
+            g (dict): Serialized geometry envelope to parse and validate.
+
+        Returns:
+            FeatureModel: New built model; invalid geometry raises ValueError.
+        """
         if not isinstance(g,dict) or set(g)!={"type","features"} or g["type"]!="feature_part" or not isinstance(g["features"],list):
             raise ValueError("Expected a feature part with a list of sketches and extrusions")
         return cls(g["features"]).build()
 
     def face_support(self,index):
+        """Describe a built face as a sketch support tied to the last extrusion.
+
+        Args:
+            index (int): Zero-based planar face index from the built model.
+
+        Returns:
+            dict: Face support with parent ID, label, and copied frame.
+        """
         face = self.faces[index]
         return {"type":"face","parent":self.last_extrusion,"label":face["label"],"frame":copy.deepcopy(face["frame"])}
 
     def face_sketch(self,index):
-        """Extract a single boundary loop for pulling an existing flat face."""
+        """Trace a flat face's single boundary into an editable closed outline. Rejects
+        holes or complex boundaries.
+
+        Args:
+            index (int): Zero-based planar face index from the built model.
+
+        Returns:
+            Sketch: Validated outline in the face's local frame.
+        """
         face = self.faces[index]
         edges = [(tuple(a),tuple(b)) for a,b in face["edges"]]
         adjacency = {}

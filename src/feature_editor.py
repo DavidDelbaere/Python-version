@@ -19,6 +19,15 @@ from sketch_geometry import Sketch
 
 class FeaturePartEditor(PartEditor):
     def __init__(self,path=None):
+        """Build the feature-tree editor with 3D and sketch views, optionally opening a
+        part document.
+
+        Args:
+            path (str or Path): Source or destination file path used by this operation.
+
+        Returns:
+            None.
+        """
         self.model = None
         self.active_id = None
         self.selected_support = {"type":"plane","name":"Front"}
@@ -87,18 +96,50 @@ class FeaturePartEditor(PartEditor):
 
     @property
     def active_feature(self):
+        """Look up the currently active sketch/extrusion feature.
+
+        Returns:
+            dict or None: Feature owned by the current model, or None if absent.
+        """
         return next((f for f in self.model.features if f["id"]==self.active_id),None) if self.model else None
 
     def snapshot(self):
+        """Capture editable model history, active feature, and selected support for undo.
+
+        Returns:
+            tuple: Independent geometry dictionary, active ID, and copied support.
+        """
         return (self.model.geometry(),self.active_id,copy.deepcopy(self.selected_support))
 
     def restore(self,state):
+        """Rebuild a saved snapshot and restore its active sketch and support selection.
+
+        Args:
+            state (tuple): Snapshot containing geometry, active feature ID, and selected
+                support.
+
+        Returns:
+            None. Replaces the model and refreshes the UI.
+        """
         self.model = FeatureModel.from_geometry(state[0])
         self.active_id,self.selected_support = state[1],copy.deepcopy(state[2])
         self.bind_active()
         self.refresh()
 
     def accept_model(self,candidate,active_id=None):
+        """Build a candidate before committing it, record undo history, clear redo, and
+        mark the document dirty.
+
+        Args:
+            candidate (FeatureModel): Independent edited history to build before
+                replacing the current model.
+            active_id (str, optional): Feature ID to activate after committing; None
+                keeps the prior ID.
+
+        Returns:
+            None. Replaces the model on success; build errors propagate before
+            commitment.
+        """
         candidate.build()
         self.history.append(self.snapshot())
         self.future.clear()
@@ -110,6 +151,12 @@ class FeaturePartEditor(PartEditor):
         self.refresh()
 
     def bind_active(self):
+        """Deserialize the active feature into the working sketch and update its plane
+        label.
+
+        Returns:
+            None. Uses an empty Sketch if no feature is active.
+        """
         feature = self.active_feature
         self.sketch = Sketch.from_geometry(feature["sketch"]) if feature else Sketch()
         if feature:
@@ -117,6 +164,15 @@ class FeaturePartEditor(PartEditor):
             self.sketch_plane_label = support.get("name",support.get("label","Face"))+" sketch · mm"
 
     def refresh(self,rebuild=True):
+        """Refresh inherited sketch controls, 3D model references, summary, and optionally
+        the feature tree.
+
+        Args:
+            rebuild (bool): Repopulate the feature tree as well as controls when True.
+
+        Returns:
+            None. Updates UI state without building new geometry.
+        """
         super().refresh()
         if self.model is None or not hasattr(self,"tree"):
             return
@@ -142,6 +198,12 @@ class FeaturePartEditor(PartEditor):
         self.statusBar().showMessage("Plane or face → New Sketch → draw/dimension → Finish Sketch → Extrude. Drag in 3D to orbit.")
 
     def rebuild_tree(self):
+        """Repopulate reference planes, sketches/extrusions, and selectable faces while
+        blocking selection signals.
+
+        Returns:
+            None. Replaces tree items and restores the active feature selection.
+        """
         self.tree.blockSignals(True)
         self.tree.clear()
         planes = QTreeWidgetItem(self.tree,["Reference planes"])
@@ -168,6 +230,16 @@ class FeaturePartEditor(PartEditor):
         self.tree.blockSignals(False)
 
     def tree_clicked(self,item,column=0):
+        """Select the plane, face, or feature described by a tree item's stored role data.
+
+        Args:
+            item (QTreeWidgetItem): Clicked row containing plane, face, feature, or
+                extrusion role data.
+            column (int): Clicked tree column from Qt; currently unused.
+
+        Returns:
+            None. Updates active sketch/support and refreshes controls.
+        """
         value = item.data(0,Qt.UserRole)
         if not value:
             return
@@ -186,6 +258,17 @@ class FeaturePartEditor(PartEditor):
         self.refresh(rebuild=False)
 
     def tree_double_clicked(self,item,column=0):
+        """Open a feature's sketch for editing, or create a sketch on a selected
+        plane/face.
+
+        Args:
+            item (QTreeWidgetItem): Clicked row containing plane, face, feature, or
+                extrusion role data.
+            column (int): Clicked tree column from Qt; currently unused.
+
+        Returns:
+            None. Switches views and may create feature history.
+        """
         value = item.data(0,Qt.UserRole)
         if value and value[0] in ("feature", "extrusion"):
             self.active_id = value[1]
@@ -195,6 +278,14 @@ class FeaturePartEditor(PartEditor):
             self.new_sketch()
 
     def select_plane(self,name):
+        """Select a named reference plane in the hierarchy and switch to the model view.
+
+        Args:
+            name (str): Reference plane name: Front, Right, or Top.
+
+        Returns:
+            None. Updates support and status text if the plane is found.
+        """
         planes = self.tree.topLevelItem(0)
         if planes is None:
             return
@@ -207,6 +298,15 @@ class FeaturePartEditor(PartEditor):
                 break
 
     def select_face(self,index):
+        """Select a valid built planar face as the support for a new sketch.
+
+        Args:
+            index (int): Zero-based planar face index in the built model.
+
+        Returns:
+            None. Synchronizes viewport highlight, tree selection, and support; invalid
+            indices are ignored.
+        """
         if not 0<=index<len(self.model.faces):
             return
         self.selected_support = self.model.face_support(index)
@@ -220,6 +320,13 @@ class FeaturePartEditor(PartEditor):
         self.statusBar().showMessage(f"{self.model.faces[index]['label']} selected — choose New Sketch to draw on this face.")
 
     def new_sketch(self):
+        """Create a sketch on the selected support via a candidate model and enter sketch
+        editing.
+
+        Returns:
+            None. Records undo on success; shows a warning for invalid supports or
+            rebuild failures.
+        """
         try:
             candidate = FeatureModel(self.model.features)
             feature = candidate.new_sketch(self.selected_support)
@@ -230,6 +337,12 @@ class FeaturePartEditor(PartEditor):
             QMessageBox.warning(self,"Cannot Create Sketch",str(error))
 
     def edit_sketch(self):
+        """Bind the active sketch, show the 2D canvas, and fit its geometry; create a
+        sketch first if needed.
+
+        Returns:
+            None.
+        """
         if self.active_feature is None:
             self.new_sketch()
             return
@@ -240,19 +353,45 @@ class FeaturePartEditor(PartEditor):
         self.canvas.fit()
 
     def finish_sketch(self):
+        """Leave drawing mode, show the 3D model, and frame its geometry.
+
+        Returns:
+            None. Does not implicitly extrude the sketch.
+        """
         self.select_mode()
         self.view_model()
         self.viewport.fit()
 
     def view_model(self):
+        """Leave drawing mode and display the 3D viewport.
+
+        Returns:
+            None. Schedules a viewport repaint.
+        """
         self.select_mode()
         self.stack.setCurrentWidget(self.viewport)
         self.viewport.update()
 
     def frame_view(self):
+        """Fit whichever viewport is currently displayed, including sketch context when
+        applicable.
+
+        Returns:
+            None. Changes camera or canvas framing only.
+        """
         self.viewport.fit() if self.stack.currentWidget() is self.viewport else self.canvas.fit()
 
     def set_drawing(self,value):
+        """Toggle straight-line drawing and show or create an editable sketch when enabling
+        it.
+
+        Args:
+            value (bool): Enable the requested drawing mode when True; disable it when
+                False.
+
+        Returns:
+            None. Updates drawing actions and the active view.
+        """
         super().set_drawing(value)
         if value and self.model is not None and hasattr(self,"stack"):
             if self.active_feature is None:
@@ -261,6 +400,15 @@ class FeaturePartEditor(PartEditor):
                 self.stack.setCurrentWidget(self.canvas)
 
     def set_arcs(self,value):
+        """Toggle arc drawing and ensure a sketch canvas is available when enabled.
+
+        Args:
+            value (bool): Enable the requested drawing mode when True; disable it when
+                False.
+
+        Returns:
+            None. Updates drawing actions and may create a new sketch.
+        """
         super().set_arcs(value)
         if value and self.model is not None and hasattr(self,"stack"):
             if self.active_feature is None:
@@ -270,6 +418,16 @@ class FeaturePartEditor(PartEditor):
                 self.stack.setCurrentWidget(self.canvas)
 
     def set_circles(self,value):
+        """Toggle circle drawing, creating an empty sketch when the active sketch already
+        has geometry.
+
+        Args:
+            value (bool): Enable the requested drawing mode when True; disable it when
+                False.
+
+        Returns:
+            None. Updates drawing actions and active view.
+        """
         super().set_circles(value)
         if value and self.model is not None and hasattr(self,"stack"):
             if self.active_feature is None or self.sketch.points:
@@ -279,6 +437,16 @@ class FeaturePartEditor(PartEditor):
                 self.stack.setCurrentWidget(self.canvas)
 
     def commit(self,candidate):
+        """Validate an edited sketch, put it into a copied feature history, and
+        rebuild/commit the candidate model.
+
+        Args:
+            candidate (Sketch): Independently edited outline to validate and commit.
+
+        Returns:
+            None. Records undo and marks dirty on success; invalid edits propagate
+            errors before commitment.
+        """
         if self.model is None:
             return super().commit(candidate)
         if self.active_feature is None:
@@ -292,6 +460,16 @@ class FeaturePartEditor(PartEditor):
             self.select_mode()
 
     def change_thickness(self,value):
+        """Convert the control's millimetres to the active sketch's stored thickness and
+        report the next extrusion distance.
+
+        Args:
+            value (float): Thickness/next-extrusion control value in millimetres,
+                converted to metres.
+
+        Returns:
+            None. Commits an edited sketch when one is active.
+        """
         if self.model is not None and self.active_feature is not None:
             candidate = copy.deepcopy(self.sketch)
             candidate.thickness = value/1000
@@ -299,6 +477,15 @@ class FeaturePartEditor(PartEditor):
         self.statusBar().showMessage(f"Next extrusion distance: {value:g} mm")
 
     def dependent_features(self, roots):
+        """Find transitive descendants whose face supports depend on the supplied features.
+
+        Args:
+            roots (iterable): Feature IDs whose transitive face-support dependents are
+                sought.
+
+        Returns:
+            set: Dependent feature IDs, excluding the supplied root IDs.
+        """
         removed = set(roots)
         while True:
             dependent = {f["id"] for f in self.model.features
@@ -308,6 +495,17 @@ class FeaturePartEditor(PartEditor):
             removed.update(dependent)
 
     def confirm_feature_deletion(self, message, dependent):
+        """Ask whether to delete a feature, listing dependent sketches that will also be
+        removed.
+
+        Args:
+            message (str): Deletion explanation shown before dependent-feature names.
+            dependent (iterable): Dependent feature IDs to list in the deletion
+                confirmation.
+
+        Returns:
+            bool: True only when the user confirms deletion.
+        """
         if dependent:
             names = [f["name"] for f in self.model.features if f["id"] in dependent]
             message += "\n\nThese sketches depend on its faces and will also be deleted:\n" + "\n".join(names)
@@ -317,6 +515,18 @@ class FeaturePartEditor(PartEditor):
         ) == QMessageBox.Yes
 
     def accept_deletion(self, candidate, active_id=None):
+        """Commit a deletion candidate, choose a surviving active feature/support, and
+        clear stale selections.
+
+        Args:
+            candidate (FeatureModel): Independent edited history to build before
+                replacing the current model.
+            active_id (str, optional): Feature ID to activate after committing; None
+                keeps the prior ID.
+
+        Returns:
+            None. Records undo and refreshes the editor.
+        """
         self.accept_model(candidate, active_id)
         if self.active_feature is None:
             self.active_id = self.model.features[-1]["id"] if self.model.features else None
@@ -328,6 +538,13 @@ class FeaturePartEditor(PartEditor):
         self.refresh()
 
     def delete_selected_segment(self):
+        """Remove the selected sketch edge, split surviving outlines when needed, and
+        remove affected extrusion/dependent features after confirmation.
+
+        Returns:
+            None. Commits a valid deletion or displays an error; cancellation preserves
+            the model.
+        """
         if self.model is None:
             return super().delete_selected_segment()
         if self.active_feature is None or not 0 <= self.canvas.selection < len(self.sketch.edges):
@@ -354,6 +571,11 @@ class FeaturePartEditor(PartEditor):
             QMessageBox.warning(self, "Cannot Delete Segment", str(error))
 
     def selected_tree_feature(self):
+        """Resolve the selected sketch or extrusion row to its model feature.
+
+        Returns:
+            dict or None: Selected feature; shows selection guidance when absent.
+        """
         item = self.tree.currentItem()
         value = item.data(0, Qt.UserRole) if item else None
         if value and value[0] in ("feature", "extrusion"):
@@ -362,6 +584,12 @@ class FeaturePartEditor(PartEditor):
         return None
 
     def delete_tree_item(self):
+        """Dispatch feature-tree deletion to sketch or extrusion removal based on the
+        current row.
+
+        Returns:
+            None. Non-feature rows are ignored.
+        """
         item = self.tree.currentItem()
         value = item.data(0, Qt.UserRole) if item else None
         if value and value[0] == "extrusion":
@@ -370,6 +598,12 @@ class FeaturePartEditor(PartEditor):
             self.delete_sketch()
 
     def delete_sketch(self):
+        """Confirm and remove a sketch, its extrusion, and face-dependent descendants
+        through a rebuilt candidate.
+
+        Returns:
+            None. Records undo on success; warnings report rebuild failures.
+        """
         feature = self.selected_tree_feature()
         if feature is None:
             return
@@ -386,6 +620,12 @@ class FeaturePartEditor(PartEditor):
             QMessageBox.warning(self, "Cannot Delete Sketch", str(error))
 
     def delete_extrusion(self):
+        """Confirm and remove an extrusion and its dependents while retaining its sketch.
+
+        Returns:
+            None. Commits a valid candidate, or preserves the model on
+            cancellation/failure.
+        """
         feature = self.selected_tree_feature()
         if feature is None or feature["depth"] is None:
             self.statusBar().showMessage("Select an extruded sketch or extrusion first.", 5000)
@@ -404,6 +644,19 @@ class FeaturePartEditor(PartEditor):
             QMessageBox.warning(self, "Cannot Delete Extrusion", str(error))
 
     def extrude_face(self,index,distance,symmetric=False):
+        """Derive a sketch from a selected flat face and add a joined extrusion through a
+        candidate model.
+
+        Args:
+            index (int): Zero-based planar face index in the built model.
+            distance (float): Signed extrusion depth in metres; negative reverses the
+                support normal.
+            symmetric (bool): Center the extrusion about its sketch plane when True.
+
+        Returns:
+            None. Commits history and frames the result; invalid boundaries or solids
+            raise an error.
+        """
         candidate = FeatureModel(self.model.features).build()
         sketch,support = candidate.face_sketch(index),candidate.face_support(index)
         feature = candidate.new_sketch(support)
@@ -416,6 +669,18 @@ class FeaturePartEditor(PartEditor):
         self.viewport.fit()
 
     def extrude_active(self,distance,symmetric=False):
+        """Set the active closed sketch's extrusion depth/mode in copied history and
+        rebuild the solid.
+
+        Args:
+            distance (float): Signed extrusion depth in metres; negative reverses the
+                support normal.
+            symmetric (bool): Center the extrusion about its sketch plane when True.
+
+        Returns:
+            None. Commits history and frames the result; invalid geometry raises an
+            error.
+        """
         if self.active_feature is None or not self.sketch.closed:
             raise ValueError("Create and close a sketch before extruding it")
         candidate = FeatureModel(self.model.features)
@@ -427,6 +692,13 @@ class FeaturePartEditor(PartEditor):
         self.viewport.fit()
 
     def extrude_dialog(self):
+        """Collect extrusion distance, reverse direction, and symmetry, then extrude the
+        selected face or active sketch.
+
+        Returns:
+            None. Converts millimetres to metres and displays build errors without
+            committing invalid geometry.
+        """
         direct_face = self.viewport.selected_face if self.stack.currentWidget() is self.viewport else -1
         if direct_face<0 and (self.active_feature is None or not self.sketch.closed):
             QMessageBox.information(self,"Extrude Sketch","Select a closed sketch in the tree, or create one on a plane or face first.")
@@ -462,6 +734,12 @@ class FeaturePartEditor(PartEditor):
                 QMessageBox.warning(self,"Cannot Extrude",str(error))
 
     def undo(self):
+        """Restore the previous feature-model snapshot and move the current snapshot to
+        redo history.
+
+        Returns:
+            None. Marks the document dirty; no change when undo history is empty.
+        """
         if self.history:
             self.future.append(self.snapshot())
             self.restore(self.history.pop())
@@ -469,6 +747,12 @@ class FeaturePartEditor(PartEditor):
             self.refresh()
 
     def redo(self):
+        """Restore the next feature-model snapshot and save the current snapshot in undo
+        history.
+
+        Returns:
+            None. Marks the document dirty; no change when redo history is empty.
+        """
         if self.future:
             self.history.append(self.snapshot())
             self.restore(self.future.pop())
@@ -476,7 +760,13 @@ class FeaturePartEditor(PartEditor):
             self.refresh()
 
     def sketch_context_geometry(self):
-        """Project the solid before the active sketch into its drawing frame."""
+        """Build the history before the active sketch and project visible solid faces/edges
+        into its drawing frame. Cache by model identity and active ID.
+
+        Returns:
+            tuple: Projected 2D triangles and boundary edges, or two empty lists with no
+            active feature.
+        """
         feature = self.active_feature
         if not feature:
             return [], []
@@ -499,10 +789,25 @@ class FeaturePartEditor(PartEditor):
         return result
 
     def sketch_context_points(self):
+        """Flatten projected solid context triangles for sketch framing.
+
+        Returns:
+            list: 2D points in metres in the active sketch frame.
+        """
         triangles, _ = self.sketch_context_geometry()
         return [point for triangle in triangles for point in triangle]
 
     def paint_sketch_context(self,painter,canvas):
+        """Paint projected solid faces and boundaries behind the active sketch while
+        preserving painter state.
+
+        Args:
+            painter (QPainter): Active painter receiving sketch context drawing.
+            canvas (SketchCanvas): Canvas providing metre-to-pixel projection.
+
+        Returns:
+            None. Draws into the supplied painter.
+        """
         triangles, edges = self.sketch_context_geometry()
         painter.save()
         painter.setPen(Qt.NoPen)
@@ -515,6 +820,13 @@ class FeaturePartEditor(PartEditor):
         painter.restore()
 
     def new_part(self):
+        """Protect unsaved changes, then reset to an empty feature document with Front
+        plane selected.
+
+        Returns:
+            None. Clears file path, history, selections, and dirty state after
+            confirmation.
+        """
         if self.confirm_changes():
             self.data,self.model = new_feature_document()
             self.active_id,self.path,self.dirty = None,None,False
@@ -529,6 +841,15 @@ class FeaturePartEditor(PartEditor):
             self.viewport.fit()
 
     def open_path(self,path):
+        """Load/migrate a JSON part into feature history, replacing editor state only after
+        successful loading.
+
+        Args:
+            path (str or Path): Source or destination file path used by this operation.
+
+        Returns:
+            bool: True on success; False after displaying a load error.
+        """
         try:
             data,model = open_feature_document(path)
         except (OSError,ValueError,TypeError,RuntimeError,ImportError) as error:
@@ -549,6 +870,15 @@ class FeaturePartEditor(PartEditor):
         return True
 
     def _save_to(self,path):
+        """Save current version-3 history and update the path and clean state only on
+        success.
+
+        Args:
+            path (str or Path): Source or destination file path used by this operation.
+
+        Returns:
+            bool: True when saved; False after displaying a save error.
+        """
         try:
             data = save_feature_document(path,self.data,self.model)
         except (OSError,ValueError,RuntimeError) as error:
@@ -559,6 +889,16 @@ class FeaturePartEditor(PartEditor):
         return True
 
     def export_mesh(self,kind):
+        """Prompt for a destination and export the built solid as OBJ or STL without
+        changing document save state.
+
+        Args:
+            kind (str): Mesh format, obj or stl.
+
+        Returns:
+            bool: True when exported; False for no solid, cancellation, or reported
+            failure.
+        """
         if not self.model.has_solid:
             QMessageBox.information(self,"Export Part","Extrude a closed sketch before exporting the 3D solid.")
             return False
@@ -578,6 +918,12 @@ class FeaturePartEditor(PartEditor):
         return True
 
     def show_controls(self):
+        """Display the feature editor's sketching, extrusion, selection, and navigation
+        guidance.
+
+        Returns:
+            None. Opens an informational dialog.
+        """
         QMessageBox.information(self,"Part Editor — 3D Features",
             "Select Front, Right or Top Plane in the hierarchy, then New Sketch.\n"
             "Draw lines or three-point arcs, then close the outline to make a face. Dimensions use millimeters; arcs dimension by radius (R).\n"

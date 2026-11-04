@@ -3,7 +3,7 @@
     "objects": [
         {
             "name": "cube",
-            "meshPath": "/home/david/Documents/SimuO (Linux)/Assets/cube.simuOPart",
+            "meshPath": "cube.simuOPart",
             "position": [
                 0.0,
                 0.0,

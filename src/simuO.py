@@ -31,6 +31,18 @@ from properties_dialog import PropertiesDialog
 
 class SimuOMainWindow(QMainWindow):
     def __init__(self, projectPath=None, scene=None):
+        """Build the scene editor, viewport, menus, temporary-part panel, and child-window
+        registries; optionally load a project before GL initialization.
+
+        Args:
+            projectPath (str or Path, optional): Scene file to open; None starts without
+                a project path.
+            scene (Scene, optional): Scene to display/use; None uses the constructor's
+                empty or unbound default.
+
+        Returns:
+            None.
+        """
         super().__init__()
 
         self.projectPath = projectPath
@@ -165,6 +177,11 @@ class SimuOMainWindow(QMainWindow):
     # ---------------------------------------------------------
 
     def createTemporaryPartsPanel(self):
+        """Create a hidden dock showing unsaved part copies and their temporary directory.
+
+        Returns:
+            None. Adds its visibility action to the Window menu.
+        """
         self.temporaryPartsDock = QDockWidget("Temporary parts", self)
         panel = QWidget(self)
         layout = QVBoxLayout(panel)
@@ -180,6 +197,12 @@ class SimuOMainWindow(QMainWindow):
         self.temporaryPartsDock.hide()
 
     def refreshTemporaryParts(self):
+        """Repopulate temporary-part names and paths, showing the dock only when copies
+        exist.
+
+        Returns:
+            None. Updates panel contents and visibility.
+        """
         self.temporaryPartsList.clear()
         for path in self.temporaryParts.sources:
             self.temporaryPartsList.addItem(path.name)
@@ -191,6 +214,11 @@ class SimuOMainWindow(QMainWindow):
         self.temporaryPartsDock.setVisible(bool(self.temporaryParts.sources))
 
     def newPart(self):
+        """Open an independent feature-based part editor and retain its window reference.
+
+        Returns:
+            None. Leaves the scene open.
+        """
         from feature_editor import FeaturePartEditor
 
         window = FeaturePartEditor()
@@ -198,6 +226,12 @@ class SimuOMainWindow(QMainWindow):
         window.show()
 
     def newProject(self):
+        """Protect unsaved changes, then clear scene objects, uploaded buffers, temporary
+        copies, and project identity.
+
+        Returns:
+            None. Resets the editor to a clean untitled scene after confirmation.
+        """
         if not self.confirmUnsavedChanges("New Project"):
             return
 
@@ -220,6 +254,18 @@ class SimuOMainWindow(QMainWindow):
         path,
         uploadToGPU=True
     ):
+        """Load referenced assets and instance overrides before replacing scene objects;
+        optionally rebuild GPU uploads. Parsing/asset errors propagate to the caller.
+
+        Args:
+            path (str or Path): Source or destination file path used by this operation.
+            uploadToGPU (bool): Upload loaded objects immediately; False defers uploads
+                until GL initialization.
+
+        Returns:
+            None. Updates project path, title, clean state, and camera framing for a
+            single JSON part.
+        """
         with open(
             path,
             "r",
@@ -311,6 +357,17 @@ class SimuOMainWindow(QMainWindow):
             path
         )
     def tryLoadFile(self, path, uploadToGPU=True):
+        """Attempt project loading, converting supported parse, schema, and filesystem
+        errors into a warning dialog.
+
+        Args:
+            path (str or Path): Source or destination file path used by this operation.
+            uploadToGPU (bool): Upload loaded objects immediately; False defers uploads
+                until GL initialization.
+
+        Returns:
+            bool: True if loaded; False after displaying a load error.
+        """
         try:
             self.loadFile(path, uploadToGPU)
         except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError) as error:
@@ -319,6 +376,12 @@ class SimuOMainWindow(QMainWindow):
         return True
 
     def openFile(self):
+        """Prompt for a project, protect unsaved work, and load it; clear old temporary
+        copies only after success.
+
+        Returns:
+            None. Cancellation leaves the current scene open.
+        """
         filePath, _ = QFileDialog.getOpenFileName(
             self,
             "Open SimuO Project",
@@ -338,6 +401,13 @@ class SimuOMainWindow(QMainWindow):
             self.refreshTemporaryParts()
 
     def importFile(self):
+        """Prompt for a part/OBJ, validate and upload it, then add it to the scene. OBJ
+        imports become temporary copies after confirmation.
+
+        Returns:
+            None. Marks successful imports dirty; errors release temporary copies and
+            display a warning.
+        """
         filePath, _ = QFileDialog.getOpenFileName(
             self,
             "Import Part",
@@ -384,6 +454,20 @@ class SimuOMainWindow(QMainWindow):
             self.viewport.frameObject(importedObject)
 
     def saveFile(self, checked=False, destination=None):
+        """Collect permanent temporary-part destinations and atomically write each part and
+        scene reference file. Updates in-memory paths/clean state only after success;
+        writes are not a multi-file transaction.
+
+        Args:
+            checked (bool): QAction signal argument, accepted for compatibility and
+                otherwise ignored.
+            destination (str or Path, optional): Explicit scene save path; None uses the
+                current path or prompts.
+
+        Returns:
+            bool: True when saved; False on destination cancellation or reported
+            filesystem failure.
+        """
         path = Path(destination) if destination is not None else self.projectPath
         if path is None:
             filePath, _ = QFileDialog.getSaveFileName(
@@ -482,6 +566,12 @@ class SimuOMainWindow(QMainWindow):
         return True
 
     def saveAsFile(self):
+        """Prompt for a new scene path and delegate scene/temporary-part persistence to
+        saveFile.
+
+        Returns:
+            bool: True when saved; False on cancellation or failure.
+        """
         filePath, _ = QFileDialog.getSaveFileName(
             self, "Save Scene as", "", "SimuO Project Files (*.simuO)"
         )
@@ -497,6 +587,16 @@ class SimuOMainWindow(QMainWindow):
         return self.saveFile(destination=path)
 
     def confirmUnsavedChanges(self, title):
+        """Offer Save/Discard/Cancel when dirty objects, an unsaved scene, or temporary
+        parts need protection.
+
+        Args:
+            title (str): Window or confirmation-dialog title.
+
+        Returns:
+            bool: True if clean, discarded, or successfully saved; False on cancellation
+            or failed save.
+        """
         hasUnsavedObjects = self.projectPath is None and self.scene.sceneHasObjects()
         if not (self.scene.dirty or hasUnsavedObjects or self.temporaryParts.sources):
             return True
@@ -513,9 +613,28 @@ class SimuOMainWindow(QMainWindow):
         return answer == QMessageBox.Discard
 
     def confirmTemporaryParts(self, title):
+        """Preserve the older temporary-part confirmation entry point by delegating to the
+        full scene unsaved-change check.
+
+        Args:
+            title (str): Window or confirmation-dialog title.
+
+        Returns:
+            bool: Whether the requested operation may continue.
+        """
         return self.confirmUnsavedChanges(title)
 
     def closeEvent(self, event):
+        """Protect unsaved changes, close playback windows, release temporary copies, and
+        accept closure; otherwise ignore it.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Controls window closure through the event.
+        """
         if not self.confirmUnsavedChanges("Close Scene"):
             event.ignore()
             return
@@ -528,6 +647,11 @@ class SimuOMainWindow(QMainWindow):
     # SET ROTATION TOOL
     # ---------------------------------------------------------
     def openSetRotationObjectList(self):
+        """Show a scene-object picker and open the rotation dialog for the selected row.
+
+        Returns:
+            None. Uses a nested selection callback.
+        """
         dialog = QDialog(self)
 
         dialog.setWindowTitle("Set Rotation")
@@ -554,6 +678,12 @@ class SimuOMainWindow(QMainWindow):
         layout.addWidget(selectButton)
 
         def selectObject():
+            """Read the enclosing picker's selected row and open that object's rotation
+            controls.
+
+            Returns:
+                None. Accepts the picker only when a row is selected.
+            """
             index = objectList.currentRow()
 
             if index < 0:
@@ -574,6 +704,14 @@ class SimuOMainWindow(QMainWindow):
         dialog.exec()
 
     def openSetRotationDialog(self, sceneObject):
+        """Show XYZ Euler angle controls and apply accepted values to one scene instance.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Accepted edits mark the scene dirty and repaint the viewport.
+        """
         dialog = QDialog(self)
 
         dialog.setWindowTitle(f"Reposition - {sceneObject.name}")
@@ -643,6 +781,11 @@ class SimuOMainWindow(QMainWindow):
         mainLayout.addWidget(buttons)
 
         def applyRotation():
+            """Apply the enclosing dialog's XYZ angle values and finish the dialog.
+
+            Returns:
+                None. Mutates the selected object, marks dirty, and repaints.
+            """
             x = xInput.value()
             y = yInput.value()
             z = zInput.value()
@@ -667,6 +810,11 @@ class SimuOMainWindow(QMainWindow):
     # ---------------------------------------------------------
 
     def openRepositionObjectList(self):
+        """Show an object picker and open position controls for the selected row.
+
+        Returns:
+            None. Leaves state unchanged until a position edit is accepted.
+        """
         dialog = QDialog(self)
 
         dialog.setWindowTitle("Reposition Object")
@@ -693,6 +841,12 @@ class SimuOMainWindow(QMainWindow):
         layout.addWidget(selectButton)
 
         def selectObject():
+            """Read the enclosing picker's selected row and open that object's position
+            controls.
+
+            Returns:
+                None. Accepts the picker only when a row is selected.
+            """
             index = objectList.currentRow()
 
             if index < 0:
@@ -713,6 +867,15 @@ class SimuOMainWindow(QMainWindow):
         dialog.exec()
 
     def openPositionDialog(self, sceneObject):
+        """Show XYZ position controls for one scene instance and apply accepted
+        coordinates.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Accepted edits mark the scene dirty and repaint.
+        """
         dialog = QDialog(self)
 
         dialog.setWindowTitle(f"Reposition - {sceneObject.name}")
@@ -780,6 +943,11 @@ class SimuOMainWindow(QMainWindow):
         mainLayout.addWidget(buttons)
 
         def applyPosition():
+            """Apply the enclosing dialog's XYZ coordinates and finish the dialog.
+
+            Returns:
+                None. Mutates the selected instance, marks dirty, and repaints.
+            """
             x = xInput.value()
             y = yInput.value()
             z = zInput.value()
@@ -805,6 +973,12 @@ class SimuOMainWindow(QMainWindow):
 
     def createMenus(self):
 
+        """Create scene file/window/help menus and physics playback action with shortcuts
+        and callbacks.
+
+        Returns:
+            None. Stores menu/action references used elsewhere by the window.
+        """
         fileMenu = self.menuBar().addMenu("File")
 
         self.renderAction = QAction("Render", self)
@@ -870,6 +1044,11 @@ class SimuOMainWindow(QMainWindow):
     # ---------------------------------------------------------
 
     def showControls(self):
+        """Display scene, camera, property-editing, and shortcut guidance.
+
+        Returns:
+            None. Opens an informational dialog.
+        """
         QMessageBox.information(
             self, "SimuO Controls",
             "Import Part adds a model. Save stores your scene and its model references.\n\n"
@@ -884,6 +1063,12 @@ class SimuOMainWindow(QMainWindow):
 
     def createToolbar(self):
 
+        """Build scene tools, disable unavailable operations, and add Properties/Delete
+        Part actions.
+
+        Returns:
+            None. Stores tool action references for selection state.
+        """
         toolbar = QToolBar("Tools", self)
 
         toolbar.setMovable(False)
@@ -926,6 +1111,11 @@ class SimuOMainWindow(QMainWindow):
         toolbar.addAction(self.deletePartAction)
 
     def openDeletePartDialog(self):
+        """Prompt for a non-axis object to remove, then delegate accepted deletion.
+
+        Returns:
+            None. Displays guidance when the scene has no removable parts.
+        """
         objects = [obj for obj in self.scene.objects if obj.name != "Axis"]
         if not objects:
             QMessageBox.information(self, "Delete Part", "There are no parts to delete.")
@@ -950,6 +1140,16 @@ class SimuOMainWindow(QMainWindow):
             self.deleteScenePart(objects[objectList.currentRow()])
 
     def deleteScenePart(self, sceneObject):
+        """Remove one non-axis instance and its GPU resources; release a temporary copy
+        only when no remaining object references it.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Marks dirty and refreshes temporary-part/status UI; unknown instances
+            are ignored.
+        """
         if sceneObject not in self.scene.objects or sceneObject.name == "Axis":
             return
         self.viewport.removeObject(sceneObject)
@@ -965,6 +1165,12 @@ class SimuOMainWindow(QMainWindow):
         self.statusBar().showMessage(f"Removed {sceneObject.name} from the scene", 5000)
 
     def openPropertiesObjectList(self):
+        """Choose a non-axis instance for property editing, opening its dialog directly
+        when only one exists.
+
+        Returns:
+            None. Displays guidance if no editable objects exist.
+        """
         objects = [obj for obj in self.scene.objects if obj.name != "Axis"]
         if not objects:
             QMessageBox.information(self, "Properties", "Import a part before editing its properties.")
@@ -989,6 +1195,16 @@ class SimuOMainWindow(QMainWindow):
             self.openPropertiesDialog(objects[objectList.currentRow()])
 
     def openPropertiesDialog(self, sceneObject):
+        """Read accepted body-type, bounce, and velocity edits and apply them only if
+        effective values changed.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Marks the scene dirty and repaints; cancellation leaves the instance
+            unchanged.
+        """
         dialog = PropertiesDialog(sceneObject, self)
         if dialog.exec() != QDialog.Accepted:
             return
@@ -1001,6 +1217,12 @@ class SimuOMainWindow(QMainWindow):
             self.viewport.update()
 
     def openPhysicsRender(self):
+        """Open and retain an independent live simulation window for the current scene.
+
+        Returns:
+            None. Displays guidance or dependency/validation errors when playback cannot
+            start.
+        """
         if not self.scene.objects:
             QMessageBox.information(self, "Render Physics", "Import a part before rendering physics.")
             return
@@ -1021,6 +1243,16 @@ class SimuOMainWindow(QMainWindow):
 
     def toolSelected(self, name):
 
+        """Update toolbar checks and dispatch a selected implemented tool to its object
+        picker.
+
+        Args:
+            name (str): Toolbar tool name; Reposition and Set Rotation have implemented
+                dialogs.
+
+        Returns:
+            None. Opens position or rotation controls for those tool names.
+        """
         sender = self.sender()
 
         for action in self.toolActions:
@@ -1038,6 +1270,17 @@ class SimuOMainWindow(QMainWindow):
 class App:
     def __init__(self, projectPath=None, scene=None):
 
+        """Store an optional project path and scene, creating an empty scene when omitted.
+
+        Args:
+            projectPath (str or Path, optional): Scene file to open; None starts without
+                a project path.
+            scene (Scene, optional): Scene to display/use; None uses the constructor's
+                empty or unbound default.
+
+        Returns:
+            None. Defers Qt window creation to run.
+        """
         self.projectPath = projectPath
 
         self.scene = scene
@@ -1050,6 +1293,13 @@ class App:
     def run(self):
 
         # Must be configured before QApplication is created.
+        """Configure an OpenGL 3.3 core surface, create/show the scene editor, and run Qt
+        only if this App owns QApplication.
+
+        Returns:
+            int: Qt exit code, or 0 when an existing application already owns the event
+            loop.
+        """
         surfaceFormat = QSurfaceFormat()
 
         surfaceFormat.setVersion(3, 3)

@@ -14,13 +14,27 @@ class PartAsset:
 
     @property
     def color(self):
+        """Resolve the part's hex color, or use the legacy mesh default.
+
+        Returns:
+            tuple: Three RGB floats in the range 0 to 1.
+        """
         if self.part is None:
             return (0.72, 0.76, 0.82)
         return tuple(int(self.part.color[i:i+2], 16)/255 for i in (1, 3, 5))
 
 
 def loadObjFlatShaded(filename):
-    """Read legacy OBJ geometry, including polygon fans and negative indices."""
+    """Read OBJ positions and faces, triangulate polygon fans, and compute flat normals.
+    Supports negative indices but ignores material and texture sidecars.
+
+    Args:
+        filename (str or Path): OBJ mesh file to read.
+
+    Returns:
+        numpy.ndarray: Flat float32 triangle data, six position/normal values per
+        vertex; invalid meshes raise ValueError.
+    """
     positions, output = [], []
     with Path(filename).open(encoding="utf-8-sig") as stream:
         for line_number, line in enumerate(stream, 1):
@@ -65,6 +79,15 @@ def loadObjFlatShaded(filename):
 
 def box_vertices(part):
     # Normals are analytic, avoiding cross-product underflow for tiny boxes.
+    """Build a centered box mesh with analytic outward normals and check GPU precision.
+
+    Args:
+        part (Part): Box definition whose size and eight local corners form the mesh.
+
+    Returns:
+        numpy.ndarray: Flat float32 array for 36 vertices, each containing XYZ and
+        normal XYZ.
+    """
     positions = part.vertices((0, 0, 0))
     faces = [((0,3,2,1), (0,0,-1)), ((4,5,6,7), (0,0,1)),
              ((0,4,7,3), (-1,0,0)), ((1,2,6,5), (1,0,0)),
@@ -83,7 +106,16 @@ def box_vertices(part):
 
 
 def load_asset(path):
-    """Dispatch by content, never reinterpret invalid JSON as a legacy mesh."""
+    """Dispatch by file content to validated JSON geometry or legacy OBJ. Invalid JSON is
+    never retried as OBJ; JSON spawn positions are checked for float32 precision.
+
+    Args:
+        path (str or Path): Source or destination file path used by this operation.
+
+    Returns:
+        PartAsset: CPU triangle mesh and optional Part definition; I/O and validation
+        errors propagate.
+    """
     path = Path(path)
     with path.open(encoding="utf-8-sig") as stream:
         while True:

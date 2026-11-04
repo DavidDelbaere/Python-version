@@ -109,6 +109,16 @@ def createAxisLines(
     ,
     tickSize=0.15
 ):
+    """Generate three world axes with integer-spaced tick marks for GL_LINES.
+
+    Args:
+        minimum (int): Lowest world-axis coordinate and first integer tick.
+        maximum (int): Highest world-axis coordinate and last integer tick, inclusive.
+        tickSize (float): Half-length of each axis tick in world units.
+
+    Returns:
+        numpy.ndarray: Flat float32 XYZ positions, two vertices per line segment.
+    """
     vertices = []
 
     # -------------------------------------------------
@@ -177,6 +187,12 @@ class Camera:
     def __init__(self):
         
         
+        """Initialize camera position and Euler view angles, then compute its viewing
+        basis.
+
+        Returns:
+            None.
+        """
         self.position = glm.vec3(
             0.0,
             2.0,
@@ -213,6 +229,11 @@ class Camera:
         self.update_vectors()
 
     def update_vectors(self):
+        """Recompute normalized forward, right, and up vectors from yaw/pitch in degrees.
+
+        Returns:
+            None. Mutates the camera basis.
+        """
         yaw = math.radians(
             self.yaw
         )
@@ -255,6 +276,18 @@ class Camera:
         dy,
         sensitivity=0.12
     ):
+        """Apply pointer deltas to yaw/pitch, clamp pitch to avoid flipping, and rebuild
+        the basis.
+
+        Args:
+            dx (float): Horizontal pointer displacement in pixels.
+            dy (float): Vertical pointer displacement in pixels, positive for upward
+                look.
+            sensitivity (float): Degrees of rotation per pointer pixel.
+
+        Returns:
+            None. Mutates camera angles and vectors.
+        """
         self.yaw += (
             dx * sensitivity
         )
@@ -274,6 +307,11 @@ class Camera:
         self.update_vectors()
 
     def view_matrix(self):
+        """Build the camera's world-to-view transform from position and basis.
+
+        Returns:
+            glm.mat4: Look-at view matrix.
+        """
         return glm.lookAt(
             self.position,
             self.position
@@ -292,6 +330,18 @@ class OpenGLViewport(QOpenGLWidget):
 
             
         
+        """Initialize viewport input/camera state and a repaint timer; GPU allocation is
+        deferred until initializeGL.
+
+        Args:
+            parent (widget, optional): Owning Qt or Tk widget; None creates an
+                independent Qt widget.
+            scene (Scene, optional): Scene to display/use; None uses the constructor's
+                empty or unbound default.
+
+        Returns:
+            None.
+        """
         self.axisShader = None
         self.axisVAO = None
         self.axisVBO = None
@@ -349,6 +399,12 @@ class OpenGLViewport(QOpenGLWidget):
 
             
     def clearRenderObjects(self):
+        """Acquire the GL context, delete all uploaded object VAOs/VBOs, clear render
+        records, and repaint.
+
+        Returns:
+            None. Leaves the CPU scene and axis resources intact.
+        """
         self.makeCurrent()
 
         for renderObject in self.renderObjects:
@@ -377,6 +433,15 @@ class OpenGLViewport(QOpenGLWidget):
         self.update()
         
     def removeObject(self, sceneObject):
+        """Release uploaded buffers for an instance using the current widget context and
+        remove its render records.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Leaves the CPU scene list unchanged and schedules a repaint.
+        """
         removed = [obj for obj in self.renderObjects if obj["SceneObject"] is sceneObject]
         if removed:
             self.makeCurrent()
@@ -390,7 +455,16 @@ class OpenGLViewport(QOpenGLWidget):
         self.update()
 
     def _uploadObject(self, sceneObject):
-        """Upload already validated CPU data; caller owns the GL context."""
+        """Upload validated CPU position/normal data and append a VAO/VBO render record.
+        The caller must own a current OpenGL context.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Allocates GPU resources; partial allocations are released if setup
+            fails.
+        """
         vertexData = sceneObject.asset.vertices
         vao = glGenVertexArrays(1)
         vbo = glGenBuffers(1)
@@ -415,6 +489,14 @@ class OpenGLViewport(QOpenGLWidget):
         print(f"Loaded {len(vertexData) // 6:,} vertices for {sceneObject.name}")
 
     def addNewObject(self, sceneObject):
+        """Acquire the viewport's GL context, upload one instance, then schedule repaint.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Adds GPU render records without adding the instance to the scene list.
+        """
         self.makeCurrent()
         try:
             self._uploadObject(sceneObject)
@@ -423,7 +505,16 @@ class OpenGLViewport(QOpenGLWidget):
         self.update()
 
     def frameObject(self, sceneObject):
-        """Make SI-sized imported parts visible without changing their scale."""
+        """Position the camera around scaled/translated local mesh bounds so SI-sized
+        assets are visible without resizing them. Bounds do not include instance
+        rotation.
+
+        Args:
+            sceneObject (SceneObject): Instance to display, remove, or edit.
+
+        Returns:
+            None. Updates camera position/orientation and repaints.
+        """
         points = sceneObject.asset.vertices.reshape(-1, 6)[:, :3]
         low, high = points.min(axis=0), points.max(axis=0)
         center = (low + high) / 2 * np.asarray(sceneObject.scale)
@@ -437,6 +528,12 @@ class OpenGLViewport(QOpenGLWidget):
         self.update()
 
     def initializeGL(self):
+        """Enable depth testing, compile shaders, create axis buffers, and upload existing
+        scene assets under Qt's current GL context.
+
+        Returns:
+            None. Initializes GPU handles and cached uniform locations.
+        """
         print(
             "initializeGL called"
         )
@@ -566,6 +663,15 @@ class OpenGLViewport(QOpenGLWidget):
         width,
         height
     ):
+        """Set the physical-pixel GL viewport using the widget's device-pixel ratio.
+
+        Args:
+            width (int): Widget/window width in logical pixels.
+            height (int): Widget/window height in logical pixels.
+
+        Returns:
+            None. Updates GL viewport dimensions with a minimum of one pixel.
+        """
         ratio = (
             self.devicePixelRatioF()
         )
@@ -594,6 +700,12 @@ class OpenGLViewport(QOpenGLWidget):
     # ---------------------------------------------------------
 
     def paintGL(self):
+        """Update camera movement, clear buffers, and draw axes and uploaded triangles
+        using current instance transforms and colors.
+
+        Returns:
+            None. Draws one frame; geometry remains in static GPU buffers.
+        """
         current_time = (
             time.perf_counter()
         )
@@ -868,6 +980,14 @@ class OpenGLViewport(QOpenGLWidget):
         self,
         delta_time
     ):
+        """Move and turn the camera from held keys, scaling speeds by elapsed time.
+
+        Args:
+            delta_time (float): Elapsed frame time in seconds used to scale movement.
+
+        Returns:
+            None. Updates camera position and viewing basis.
+        """
         turn = int(Qt.Key_Right in self.keys) - int(Qt.Key_Left in self.keys)
         if turn:
             self.camera.yaw += turn * 90.0 * delta_time
@@ -918,6 +1038,16 @@ class OpenGLViewport(QOpenGLWidget):
         self,
         event
     ):
+        """Track a pressed key for continuous movement and request window closure on
+        Escape.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Mutates held-key state.
+        """
         self.keys.add(
             event.key()
         )
@@ -932,6 +1062,15 @@ class OpenGLViewport(QOpenGLWidget):
         self,
         event
     ):
+        """Remove a released key from held state, ignoring synthetic auto-repeat releases.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None.
+        """
         if event.isAutoRepeat():
             return
         self.keys.discard(
@@ -940,6 +1079,16 @@ class OpenGLViewport(QOpenGLWidget):
 
     def focusOutEvent(self, event):
         # File dialogs and switching applications can swallow key-up events.
+        """Clear held keys and release mouse capture/cursor hiding when the viewport loses
+        focus.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Delegates the focus event after resetting input state.
+        """
         self.keys.clear()
         if self.right_mouse_down:
             self.right_mouse_down = False
@@ -949,6 +1098,16 @@ class OpenGLViewport(QOpenGLWidget):
         super().focusOutEvent(event)
 
     def mousePressEvent(self, event):
+        """Begin captured right-button mouse look, hide the cursor, and recenter the
+        pointer.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Updates capture and synthetic-center-event state.
+        """
         if event.button() == Qt.RightButton:
             self.right_mouse_down = True
 
@@ -960,6 +1119,15 @@ class OpenGLViewport(QOpenGLWidget):
             self.ignore_center_event = True
             self.center_mouse()
     def mouseReleaseEvent(self, event):
+        """End right-button mouse look and restore normal pointer capture/appearance.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None.
+        """
         if event.button() == Qt.RightButton:
             self.right_mouse_down = False
 
@@ -969,6 +1137,16 @@ class OpenGLViewport(QOpenGLWidget):
             self.unsetCursor()
             
     def mouseMoveEvent(self, event):
+        """Rotate from pointer displacement relative to center during mouse look, ignoring
+        recenter-generated events.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Updates camera orientation and recenters the pointer.
+        """
         if not self.right_mouse_down:
             return
 
@@ -1006,6 +1184,11 @@ class OpenGLViewport(QOpenGLWidget):
         self.center_mouse()
         
     def center_mouse(self):
+        """Warp the system pointer to the widget center in global screen coordinates.
+
+        Returns:
+            None. Changes the desktop cursor position.
+        """
         center = self.rect().center()
 
         global_center = self.mapToGlobal(

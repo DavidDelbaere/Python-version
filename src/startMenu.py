@@ -20,6 +20,28 @@ class SimuOStartMenu(ctk.CTkToplevel):
         on_new_part=None,
         on_open_part=None,
     ):
+        """Build a fixed-size startup chooser with optional logo and scene/part action
+        callbacks.
+
+        Args:
+            parent (widget, optional): Owning Qt or Tk widget; None creates an
+                independent Qt widget.
+            logo_path (str or Path, optional): Logo image location; missing/omitted
+                images use a text placeholder.
+            on_new (callable, optional): No-argument callback for creating a scene.
+            on_import (callable, optional): Callback receiving the selected scene path.
+            title (str): Window or confirmation-dialog title.
+            width (int): Widget/window width in logical pixels.
+            height (int): Widget/window height in logical pixels.
+            on_new_part (callable, optional): No-argument callback for creating an
+                editable part.
+            on_open_part (callable, optional): Callback receiving the selected part
+                path.
+
+        Returns:
+            None. Creates a Tk toplevel and schedules centering and modal capture after
+            mapping.
+        """
         super().__init__(parent)
 
         self.parent = parent
@@ -59,11 +81,31 @@ class SimuOStartMenu(ctk.CTkToplevel):
 
 
     def _grab_when_visible(self, event):
+        """Acquire modal input capture only once this startup toplevel is mapped and
+        viewable.
+
+        Args:
+            event (Tk event): Map event; capture is taken only for this toplevel when
+                visible.
+
+        Returns:
+            None. Ignores map events from child widgets.
+        """
         if event.widget is self and self.winfo_viewable():
             self.grab_set()
 
     def _build_ui(self, logo_path):
 
+        """Create the logo/title panel and scene/part buttons, falling back to a text logo
+        if no image exists.
+
+        Args:
+            logo_path (str or Path, optional): Logo image location; missing/omitted
+                images use a text placeholder.
+
+        Returns:
+            None. Builds and packs child widgets.
+        """
         panel = ctk.CTkFrame(
             self,
             corner_radius=10,
@@ -267,12 +309,23 @@ class SimuOStartMenu(ctk.CTkToplevel):
                           border_width=1,border_color="#5a5a5a",text_color="#f5f5f5").pack(fill="x",pady=(0,8))
 
     def _new_part(self):
+        """Close the chooser and invoke the optional no-argument new-part callback.
+
+        Returns:
+            None. Calls the callback only if supplied.
+        """
         callback = self.on_new_part
         self._close()
         if callback:
             callback()
 
     def _open_part(self):
+        """Prompt for a part file, then close the chooser and invoke its optional open-part
+        callback.
+
+        Returns:
+            None. Cancellation leaves the chooser open.
+        """
         filename = filedialog.askopenfilename(parent=self,title="Open SimuO Part",
                                               filetypes=[("SimuO Parts","*.simuOPart")])
         if filename:
@@ -286,6 +339,15 @@ class SimuOStartMenu(ctk.CTkToplevel):
         parent
     ):
 
+        """Create a styled text placeholder when the image logo is unavailable.
+
+        Args:
+            parent (widget, optional): Owning Qt or Tk widget; None creates an
+                independent Qt widget.
+
+        Returns:
+            None. Packs a label into the supplied parent.
+        """
         placeholder = ctk.CTkLabel(
             parent,
             text="SimuO",
@@ -312,6 +374,11 @@ class SimuOStartMenu(ctk.CTkToplevel):
 
     def _center_on_screen(self):
 
+        """Calculate screen-centered geometry using configured startup-window dimensions.
+
+        Returns:
+            None. Moves and sizes the toplevel after idle layout.
+        """
         self.update_idletasks()
 
         screen_width = (
@@ -342,6 +409,11 @@ class SimuOStartMenu(ctk.CTkToplevel):
 
     def _new_project(self):
 
+        """Close the chooser and invoke the optional no-argument new-scene callback.
+
+        Returns:
+            None.
+        """
         callback = self.on_new
 
         self._close()
@@ -352,6 +424,12 @@ class SimuOStartMenu(ctk.CTkToplevel):
 
     def _import_project(self):
 
+        """Prompt for a scene file, then close the chooser and pass its path to the
+        optional import callback.
+
+        Returns:
+            None. Cancellation leaves the chooser open.
+        """
         filename = filedialog.askopenfilename(
             parent=self,
 
@@ -384,6 +462,11 @@ class SimuOStartMenu(ctk.CTkToplevel):
 
     def _close(self):
 
+        """Release modal capture if possible and destroy the startup toplevel.
+
+        Returns:
+            None. Suppresses capture-release errors during closure.
+        """
         try:
             self.grab_release()
 
@@ -402,6 +485,23 @@ def showStartMenu(
     on_open_part=None,
 ):
 
+    """Construct a startup chooser attached to the supplied Tk parent.
+
+    Args:
+        parent (widget, optional): Owning Qt or Tk widget; None creates an independent
+            Qt widget.
+        logo_path (str or Path, optional): Logo image location; missing/omitted images
+            use a text placeholder.
+        on_new (callable, optional): No-argument callback for creating a scene.
+        on_import (callable, optional): Callback receiving the selected scene path.
+        on_new_part (callable, optional): No-argument callback for creating an editable
+            part.
+        on_open_part (callable, optional): Callback receiving the selected part path.
+
+    Returns:
+        SimuOStartMenu: New chooser window; this helper does not start or wait on an
+        event loop.
+    """
     return SimuOStartMenu(
         parent=parent,
         logo_path=logo_path,
@@ -439,6 +539,11 @@ if __name__ == "__main__":
 
     def new_project():
 
+        """Print the new-scene selection for the standalone menu preview.
+
+        Returns:
+            None. Writes preview feedback to stdout.
+        """
         print(
             "New .simuO build selected"
         )
@@ -446,6 +551,14 @@ if __name__ == "__main__":
 
     def import_project(filepath):
 
+        """Print the imported scene path for the standalone menu preview.
+
+        Args:
+            filepath (str or Path): Selected scene or part file path.
+
+        Returns:
+            None. Writes preview feedback to stdout.
+        """
         print(
             "Imported:",
             filepath

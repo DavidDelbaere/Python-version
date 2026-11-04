@@ -11,12 +11,28 @@ from sketch_geometry import Sketch
 
 
 def unit(v):
+    """Normalize a direction vector, using positive Z when its length is zero.
+
+    Args:
+        v (array-like): Direction vector to normalize.
+
+    Returns:
+        numpy.ndarray: Unit vector, or [0, 0, 1] for zero length.
+    """
     length = np.linalg.norm(v)
     return np.asarray(v)/length if length else np.array([0.,0,1])
 
 
 def sketch_world_points(feature):
-    """Tessellate already validated sketch geometry in its supporting plane."""
+    """Tessellate already validated sketch geometry and place it in its supporting plane.
+
+    Args:
+        feature (dict): Validated feature containing sketch geometry and its supporting
+            frame.
+
+    Returns:
+        numpy.ndarray: Shape (N, 3) world points in metres.
+    """
     data = feature["sketch"]
     sketch = Sketch(data["points"],data["closed"],data["dimensions"],data["thickness"],data.get("arcs",[]))
     return to_world(sketch.outline_points,support_frame(feature["support"]))
@@ -27,6 +43,16 @@ class PartViewport(QWidget):
     plane_selected = Signal(str)
 
     def __init__(self,parent=None):
+        """Initialize an orbitable Qt-painted part preview with default Front support and
+        empty model/selection.
+
+        Args:
+            parent (widget, optional): Owning Qt or Tk widget; None creates an
+                independent Qt widget.
+
+        Returns:
+            None.
+        """
         super().__init__(parent)
         self.model = None
         self.support = {"type":"plane","name":"Front"}
@@ -42,6 +68,11 @@ class PartViewport(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
     def fit(self):
+        """Fit built solid and draft sketch points, reset panning, and repaint.
+
+        Returns:
+            None. Updates target and camera distance without changing geometry.
+        """
         points = []
         if self.model is not None:
             if self.model.has_solid:
@@ -59,6 +90,11 @@ class PartViewport(QWidget):
         self.update()
 
     def basis(self):
+        """Calculate the orbit camera position and orthonormal viewing axes.
+
+        Returns:
+            tuple: NumPy vectors (eye, forward, right, up).
+        """
         offset = np.array([math.cos(self.pitch)*math.sin(self.yaw),math.sin(self.pitch),math.cos(self.pitch)*math.cos(self.yaw)])
         eye = self.target+offset*self.distance
         forward = unit(self.target-eye)
@@ -67,6 +103,16 @@ class PartViewport(QWidget):
         return eye,forward,right,up
 
     def project(self,point):
+        """Perspective-project a 3D point into widget coordinates, rejecting points too
+        close to or behind the camera.
+
+        Args:
+            point (array-like): World XYZ point in metres.
+
+        Returns:
+            tuple or None: (QPointF pixels, camera depth in metres), or None when
+            clipped.
+        """
         eye,forward,right,up = self.basis()
         delta = np.asarray(point)-eye
         depth = float(np.dot(delta,forward))
@@ -77,6 +123,14 @@ class PartViewport(QWidget):
                        self.height()/2+self.pan[1]-np.dot(delta,up)*focal/depth),depth
 
     def ray(self,position):
+        """Construct a world-space picking ray through a widget position.
+
+        Args:
+            position (QPointF): Widget-local pointer location in logical pixels.
+
+        Returns:
+            tuple: Camera origin and normalized 3D ray direction.
+        """
         eye,forward,right,up = self.basis()
         focal = min(self.width(),self.height())*1.25
         x = (position.x()-self.width()/2-self.pan[0])/focal
@@ -84,6 +138,15 @@ class PartViewport(QWidget):
         return eye,unit(forward+x*right+y*up)
 
     def pick(self,position):
+        """Find the nearest solid face intersected by the pointer's ray using triangle
+        tests.
+
+        Args:
+            position (QPointF): Widget-local pointer location in logical pixels.
+
+        Returns:
+            int: Face index, or -1 if no face is hit.
+        """
         if self.model is None:
             return -1
         origin,direction = self.ray(position)
@@ -108,9 +171,20 @@ class PartViewport(QWidget):
 
     @property
     def plane_extent(self):
+        """Scale visible reference-plane patches to the current camera distance.
+
+        Returns:
+            float: Plane patch half-extent in metres.
+        """
         return max(1e-6,self.distance*.22)
 
     def visible_planes(self):
+        """Select reference-plane frames to display according to solid and support state.
+
+        Returns:
+            list: (plane name, frame) pairs; empty when a solid has only a face support
+            selected.
+        """
         if self.model is None or not self.model.has_solid:
             return list(PLANES.items())
         if self.support is not None and self.support.get("type")=="plane":
@@ -118,7 +192,14 @@ class PartViewport(QWidget):
         return []
 
     def pick_plane(self,position):
-        """Pick the nearest displayed reference-plane patch along the ray."""
+        """Ray-test visible finite plane patches and choose the nearest hit.
+
+        Args:
+            position (QPointF): Widget-local pointer location in logical pixels.
+
+        Returns:
+            str or None: Reference-plane name, or None if no patch is hit.
+        """
         origin,direction = self.ray(position)
         best,nearest = None,float("inf")
         extent = self.plane_extent
@@ -136,10 +217,29 @@ class PartViewport(QWidget):
         return best
 
     def mousePressEvent(self,event):
+        """Capture focus and record the initial pointer position for orbit, pan, or click
+        selection.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Initializes drag state.
+        """
         self.setFocus()
         self.drag,self.drag_start = event.position(),event.position()
 
     def mouseMoveEvent(self,event):
+        """Pan on middle-drag or orbit on left/right-drag, clamping camera pitch.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Updates camera state and repaints.
+        """
         if self.drag is None:
             return
         delta = event.position()-self.drag
@@ -152,6 +252,16 @@ class PartViewport(QWidget):
         self.update()
 
     def mouseReleaseEvent(self,event):
+        """Treat a short left click as face/plane selection, emit the selection signal, and
+        finish dragging.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Updates highlight/support and clears drag state.
+        """
         if event.button()==Qt.LeftButton and self.drag_start is not None and (event.position()-self.drag_start).manhattanLength()<5:
             index = self.pick(event.position())
             self.selected_face = index
@@ -166,10 +276,28 @@ class PartViewport(QWidget):
         self.update()
 
     def wheelEvent(self,event):
+        """Adjust orbit distance within limits according to wheel direction.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Schedules a repaint.
+        """
         self.distance = max(1e-5,min(1e6,self.distance*(.85 if event.angleDelta().y()>0 else 1/.85)))
         self.update()
 
     def keyPressEvent(self,event):
+        """Orbit with horizontal arrow keys or fit the view with F; delegate other keys.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Updates view state for handled shortcuts.
+        """
         if event.key() in (Qt.Key_Left,Qt.Key_Right):
             self.yaw += .08 if event.key()==Qt.Key_Right else -.08
             self.update()
@@ -179,6 +307,15 @@ class PartViewport(QWidget):
             super().keyPressEvent(event)
 
     def _path(self,points):
+        """Project a polygon into a closed painter path with average depth for draw
+        ordering.
+
+        Args:
+            points (iterable): Polygon vertices in world XYZ metres.
+
+        Returns:
+            tuple or None: (QPainterPath, mean depth), or None for empty/clipped points.
+        """
         projected = [self.project(p) for p in points]
         if not projected or any(p is None for p in projected):
             return None
@@ -189,6 +326,16 @@ class PartViewport(QWidget):
         return path,sum(depth for _,depth in projected)/len(projected)
 
     def paintEvent(self,event):
+        """Paint reference planes, depth-sorted shaded triangles, visible face boundaries,
+        sketches, and the orientation triad.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Draws into the widget using QPainter, without an OpenGL context.
+        """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.fillRect(self.rect(),QColor("#2e2e33"))

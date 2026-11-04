@@ -1,10 +1,14 @@
 # SimuO
 
-A Python desktop 3D scene editor using PySide6, OpenGL 3.3, and a CustomTkinter startup menu.
+Student built 3d Physics Simulator.
+
+For part loading, rendering, property editing, persistence, and backend entry points,
+see the [developer documentation index](Documentation/README.md) and
+[SimuOPart developer guide](Documentation/Backend/SimuOPart.md).
 
 ## Windows setup
 
-Use Windows 10/11 x64 with **Python 3.12 x64** from python.org (include Tcl/Tk in the installer). Install **Visual Studio Build Tools 2022** with **Desktop development with C++**, including the MSVC x64 compiler and Windows SDK. The pinned `pybullet` dependency requires a source build on Windows; its first installation can take several minutes. The old Cython `src/setup.py` is not needed.
+Use Windows 10/11 x64 with **Python 3.12 x64** from python.org (include Tcl/Tk in the installer). Install **Visual Studio Build Tools 2022** with **Desktop development with C++**, including the MSVC x64 compiler and Windows SDK. The pinned `pybullet` dependency requires a source build on Windows; its first installation can take several minutes.
 
 Open PowerShell in the project folder:
 
@@ -27,15 +31,15 @@ The launcher locates Python and the source relative to itself, so the project fo
 Install your Intel, AMD, or NVIDIA graphics driver with OpenGL 3.3 support. The Windows build uses Qt's native backend; the Linux `xcb` packages and settings below are not needed. Tests on a Windows machine:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-.\.venv\Scripts\python.exe tests/gui_part_render.py
-.\.venv\Scripts\python.exe tests/gui_obj_import.py
-.\.venv\Scripts\python.exe tests/gui_physics_playback.py
+.\.venv\Scripts\python.exe -m unittest discover -s Testing/Developer_Tests -v
+.\.venv\Scripts\python.exe Testing/Developer_Tests/gui_part_render.py
+.\.venv\Scripts\python.exe Testing/Developer_Tests/gui_obj_import.py
+.\.venv\Scripts\python.exe Testing/Developer_Tests/gui_physics_playback.py
 ```
 
 The GUI scripts open test windows and need a working desktop graphics driver. `.github/workflows/windows.yml` runs the automated suites, tests the launcher from another folder, builds `SimuO.exe` on Windows, and checks packaged `--help` startup. That CI check does not verify interactive GPU rendering.
 
-## Linux Mint setup
+## Mint setup
 
 Linux Mint 22 uses Python 3.12. Run these commands from the project folder:
 
@@ -51,7 +55,7 @@ python3 -m venv .venv
 ./run.sh
 ```
 
-Use a fresh `.venv`; the copied `path/to/venv` folders and existing Windows binaries are not installation dependencies. No Cython compilation is needed: the current renderer is Python and the old `src/setup.py` refers to a Cython source that is absent from this repository.
+Use a fresh `.venv`; the copied `path/to/venv` folders and existing Windows binaries are not installation dependencies. No Cython compilation is needed; the current renderer is Python.
 
 The system packages above include the libraries required by [Qt's X11 backend](https://doc.qt.io/qt-6/linux-requirements.html). OpenGL 3.3 support from your graphics driver is required. Use Mint's Driver Manager if your hardware needs a proprietary graphics driver.
 
@@ -75,9 +79,9 @@ If Qt reports that it cannot load `xcb`, check the system packages above. `QT_DE
 
 ## Models and projects
 
-The Part Editor now opens in **3D** with a feature tree containing **Front**, **Right**, and **Top** planes. Select a plane (or a flat model face), choose **New Sketch**, draw/dimension an outline, then **Finish Sketch → Extrude**. You can also select a flat face and **Extrude** it directly. Orbit by dragging, pan with the middle mouse button, and zoom with the wheel. Try `Assets/feature_demo.simuOPart`. See [FEATURE_EDITOR.md](FEATURE_EDITOR.md) for the current workflow and editable feature-file format.
+The Part Editor now opens in **3D** with a feature tree containing **Front**, **Right**, and **Top** planes. Select a plane (or a flat model face), choose **New Sketch**, draw/dimension an outline, then **Finish Sketch → Extrude**. You can also select a flat face and **Extrude** it directly. Orbit by dragging, pan with the middle mouse button, and zoom with the wheel. Try `Assets/feature_demo.simuOPart`. See [feature editor guide](Documentation/Frontend/feature_editor.md) for the current workflow and editable feature-file format.
 
-The opening screen also provides **New Part** and **Open Part…**. The Part Editor lets you draw connected lines and three-point arcs, close an outline into a face, and apply line-length or arc-radius dimensions in millimeters. Set a thickness and save an editable `.simuOPart`, then import it into a scene. Open `Assets/sketch_plate.simuOPart` or `Assets/arc_plate.simuOPart` for examples, or run `./run.sh --part-editor`. See [PART_EDITOR.md](PART_EDITOR.md) for controls, file format and scope.
+The opening screen also provides **New Part** and **Open Part…**. The Part Editor lets you draw connected lines and three-point arcs, close an outline into a face, and apply line-length or arc-radius dimensions in millimeters. Set a thickness and save an editable `.simuOPart`, then import it into a scene. Open `Assets/sketch_plate.simuOPart` or `Assets/arc_plate.simuOPart` for examples, or run `./run.sh --part-editor`. See [sketch editor guide](Documentation/Frontend/part_editor.md) for controls, file format and scope.
 
 For an arc, select **Draw arcs** and click the start, a point on the curve, then the end. When connected to an existing segment, the last endpoint is reused as the start. Select the arc and choose **Add dimension…** to enter its **radius**, shown as `R` in mm. Radius edits keep endpoints fixed; the minimum radius is half their separation. Esc cancels a pending arc. Lines and arcs can be mixed in one outline.
 
@@ -99,7 +103,7 @@ Unsaved imports appear in the **Temporary parts** panel, which lists their names
 
 JSON parts carry density, friction, restitution, mass/inertia and custom properties, available through each scene object's `part` definition. The editor loads their starting position and velocity. **Save** and **Save As** write `.simuO` scene files with instance transforms, motion and paths relative to the scene file. Material and custom properties are reloaded from the referenced part, so keep the part files when moving a project. Geometry and asset definitions are not embedded in the scene.
 
-The design and v1 field contract are in `experiments/physics_parts/FORMAT.md`. The production loader is `src/part_format.py`; unlike the floor-contact experiment, the editor allows parts below y=0. Unsupported versions, malformed parts, and geometry outside the renderer's numerical range report an error.
+The design and v1 field contract are in `Testing/Part_Playground/FORMAT.md`. The production loader is `src/part_format.py`; unlike the floor-contact experiment, the editor allows parts below y=0. Unsupported versions, malformed parts, and geometry outside the renderer's numerical range report an error.
 
 When opening older projects with stale absolute paths or Windows paths, SimuO also looks for the model beside the project, in its `Assets` subfolder, and in the application's bundled `Assets` folder. Missing files produce an error dialog.
 
@@ -107,7 +111,7 @@ When opening older projects with stale absolute paths or Windows paths, SimuO al
 
 Click **Render** on the top menu bar beside **File**, or press **Ctrl+R** to open a separate live physics window for the current scene. Playback starts automatically and simulates a copy, preserving the editor's original objects. Use **Pause/Play**, **Step** (1/240 s), **Reset**, **Frame scene**, the gravity control, and the optional floor at y=0. P toggles playback, R resets, and F frames the scene in that window. The normal camera controls also work there.
 
-The Bullet solver handles gravity, linear/angular motion, box-to-box collisions, floor contact, bounce, friction and static bodies. Part dimensions, density/explicit mass, inertia and material coefficients drive the simulation. Legacy OBJ-based parts default to static mesh colliders; enable **Dynamic body** in Properties to simulate them using a convex hull and a default mass of 1 kg. Custom metadata has no physical effect. See `PHYSICS_RENDER.md` for units, scaling and limitations.
+The Bullet solver handles gravity, linear/angular motion, box-to-box collisions, floor contact, bounce, friction and static bodies. Part dimensions, density/explicit mass, inertia and material coefficients drive the simulation. Legacy OBJ-based parts default to static mesh colliders; enable **Dynamic body** in Properties to simulate them using a convex hull and a default mass of 1 kg. Custom metadata has no physical effect. See [physics backend guide](Documentation/Backend/physics_world.md) for units, scaling and limitations.
 
 PyBullet is included in the project requirements and installed on this device. On Python versions without a matching binary wheel it builds from source, which is why the setup includes compiler/Python headers. To update an older environment, run `.venv/bin/python -m pip install -r requirements.txt`.
 
@@ -116,8 +120,8 @@ PyBullet is included in the project requirements and installed on this device. O
 To build **on Windows**, run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-build.txt
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm main.spec
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm src/main.spec
 .\dist\SimuO.exe
 ```
 
@@ -126,12 +130,18 @@ Build each executable on its target OS; a Linux executable cannot run on Windows
 Build on Linux; existing Windows `.pyd` files cannot run on Linux.
 
 ```bash
-.venv/bin/python -m pip install -r requirements-build.txt
-.venv/bin/python -m PyInstaller --noconfirm main.spec
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m PyInstaller --noconfirm src/main.spec
 ./dist/SimuO
 ```
 
-Both `main.spec` and `src/main.spec` locate sources and assets relative to the spec file. The executable bundles the logo, sample models, and CustomTkinter data. The target machine still needs a desktop session, the system libraries above, and an OpenGL 3.3 driver.
+`src/main.spec` is the single build specification and locates sources and assets relative to its own location. The executable bundles the logo, sample models, and CustomTkinter data. The target machine still needs a desktop session, the system libraries above, and an OpenGL 3.3 driver.
+
+On Linux, verify the packaged startup screen and logo on an X11/XWayland desktop with `wmctrl` available:
+
+```bash
+.venv/bin/python Testing/Developer_Tests/gui_packaged_startup.py dist/SimuO
+```
 
 ## Controls
 
@@ -148,8 +158,8 @@ Click **Properties** in the toolbar to choose a part. Check **Dynamic body** to 
 - Hold the right mouse button and move the mouse: look around
 - `Esc`: close the editor
 
-## Testing handoff
+## Testing
 
-Automated checks: `.venv/bin/python -m unittest discover -s tests -v`. Desktop renderer integration: `.venv/bin/python tests/gui_part_render.py`. Physics playback integration: `.venv/bin/python tests/gui_physics_playback.py`. Desktop checks open and close their own windows. See `PART_MIGRATION.md` and `PHYSICS_RENDER.md` for results and scope.
+Production automated checks: `.venv/bin/python -m unittest discover -s Testing/Developer_Tests -v`. Desktop renderer integration: `.venv/bin/python Testing/Developer_Tests/gui_part_render.py`. Physics playback integration: `.venv/bin/python Testing/Developer_Tests/gui_physics_playback.py`. The independent playground checks run with `.venv/bin/python -m unittest discover -s Testing/Part_Playground -v`. Desktop checks open and close their own windows. See the [developer documentation](Documentation/README.md) for implementation details and test locations.
 
 On Mint, check startup **New Scene**, **Import Scene**, and closing the startup menu. In the editor, import a model, save, reopen, use **Save As**, reposition and rotate objects, and use the camera before and after switching windows. Also check launching from another working directory and opening a project whose folder contains spaces. Move a scene together with its model files and reopen it to check relative paths. If building a release, repeat startup and model loading with `dist/SimuO`.

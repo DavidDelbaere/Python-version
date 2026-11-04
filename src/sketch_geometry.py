@@ -9,7 +9,19 @@ EPS = 1e-9
 
 
 def radius_bulge(start, end, radius, previous):
-    """Choose the same side and minor/major branch with fixed endpoints."""
+    """Compute arc bulge for a new radius while preserving the old side and minor/major
+    branch with fixed endpoints.
+
+    Args:
+        start (sequence): Arc start [x, y] in sketch metres.
+        end (sequence): Arc end [x, y] in sketch metres.
+        radius (float): Positive arc/circle radius in metres.
+        previous (float): Existing signed bulge used to retain side and minor/major
+            branch.
+
+    Returns:
+        float: Signed tan(sweep/4); an impossible radius raises ValueError.
+    """
     chord = math.dist(start, end)
     if radius < chord/2 - 1e-12:
         raise ValueError(f"Radius must be at least {chord/2*1000:.4f} mm for these endpoints")
@@ -20,7 +32,17 @@ def radius_bulge(start, end, radius, previous):
 
 
 def three_point_bulge(start, through, end):
-    """Signed tan(sweep/4) of the circle passing through three distinct points."""
+    """Fit an arc through three distinct non-collinear planar points.
+
+    Args:
+        start (sequence): Arc start [x, y] in sketch metres.
+        through (sequence): Distinct point [x, y] on the intended arc, in metres.
+        end (sequence): Arc end [x, y] in sketch metres.
+
+    Returns:
+        float: Signed tan(sweep/4) for the arc passing through the middle point; invalid
+        points raise ValueError.
+    """
     a, m, b = (np.asarray(p, dtype=float) for p in (start, through, end))
     u, v = m-a, b-a
     determinant = 2*(u[0]*v[1]-u[1]*v[0])
@@ -38,12 +60,54 @@ def three_point_bulge(start, through, end):
 
 
 def cross(a,b,c):
+    """Compute the signed 2D cross product of vectors AB and AC.
+
+    Args:
+        a (sequence): Planar [x, y] point; segment endpoints are paired in argument
+            order.
+        b (sequence): Planar [x, y] point; segment endpoints are paired in argument
+            order.
+        c (sequence): Planar [x, y] point; segment endpoints are paired in argument
+            order.
+
+    Returns:
+        float: Twice the signed triangle area; positive for counterclockwise points.
+    """
     return (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])
 
 
 def intersects(a,b,c,d):
+    """Test whether two planar segments cross, touch, or overlap within tolerance.
+
+    Args:
+        a (sequence): Planar [x, y] point; segment endpoints are paired in argument
+            order.
+        b (sequence): Planar [x, y] point; segment endpoints are paired in argument
+            order.
+        c (sequence): Planar [x, y] point; segment endpoints are paired in argument
+            order.
+        d (sequence): Planar [x, y] point; segment endpoints are paired in argument
+            order.
+
+    Returns:
+        bool: True if segments AB and CD intersect.
+    """
     tolerance = 1e-12*max(math.dist(a,b),math.dist(c,d),1e-6)
     def on(p,q,r):
+        """Test whether a point lies on a segment within the enclosing intersection
+        tolerance.
+
+        Args:
+            p (sequence): Planar [x, y] point; segment endpoints are paired in argument
+                order.
+            q (sequence): Planar [x, y] point; segment endpoints are paired in argument
+                order.
+            r (sequence): Planar [x, y] point; segment endpoints are paired in argument
+                order.
+
+        Returns:
+            bool: True if R is collinear with and inside segment PQ.
+        """
         return abs(cross(p,q,r)) < tolerance and all(min(p[i],q[i])-EPS <= r[i] <= max(p[i],q[i])+EPS for i in (0,1))
     p,q,r,s = cross(a,b,c),cross(a,b,d),cross(c,d,a),cross(c,d,b)
     return (p*q < 0 and r*s < 0) or on(a,b,c) or on(a,b,d) or on(c,d,a) or on(c,d,b)
@@ -60,7 +124,18 @@ class Sketch:
 
     @classmethod
     def circle(cls, center, radius, thickness=.01):
-        """Create an editable closed circle from two exact semicircular arcs."""
+        """Construct and validate an editable closed circle from two exact semicircular
+        arcs.
+
+        Args:
+            center (sequence): Circle center [x, y] in sketch metres.
+            radius (float): Positive arc/circle radius in metres.
+            thickness (float): Prism thickness in metres; defaults to 0.01 m.
+
+        Returns:
+            Sketch: New circle with undimensioned arcs; invalid radius or coordinates
+            raise ValueError.
+        """
         if not math.isfinite(radius) or not 1e-6 <= radius <= 1e6:
             raise ValueError("Circle radius must be between 0.001 mm and 1,000,000 m")
         x, y = center
@@ -71,14 +146,33 @@ class Sketch:
 
     @property
     def is_circle(self):
+        """Recognize the two-semicircle representation created for a circle.
+
+        Returns:
+            bool: True for a closed two-point outline with two positive unit bulges.
+        """
         return (self.closed and len(self.points)==2 and len(self.arcs)==2
                 and all(arc is not None and abs(arc["bulge"]-1.)<1e-12 for arc in self.arcs))
 
     @property
     def edges(self):
+        """Enumerate consecutive endpoint indices, adding the last-to-first edge for a
+        closed outline.
+
+        Returns:
+            list: Pairs of zero-based point indices.
+        """
         return [(i,(i+1)%len(self.points)) for i in range(len(self.points) if self.closed else max(0,len(self.points)-1))]
 
     def length(self,index):
+        """Measure a straight segment or the full curved length of an arc.
+
+        Args:
+            index (int): Zero-based segment index in sketch edge order.
+
+        Returns:
+            float: Segment length in metres, rather than the arc's driving radius.
+        """
         a,b = self.edges[index]
         if self.is_arc(index):
             _,radius,sweep = self.arc_parameters(index)
@@ -86,9 +180,26 @@ class Sketch:
         return math.dist(self.points[a],self.points[b])
 
     def is_arc(self, index):
+        """Check whether an edge has a stored circular-arc definition.
+
+        Args:
+            index (int): Zero-based segment index in sketch edge order.
+
+        Returns:
+            bool: True when the segment has non-null arc data.
+        """
         return bool(self.arcs) and self.arcs[index] is not None
 
     def arc_parameters(self, index):
+        """Recover an arc's circle and sweep from its endpoints and bulge.
+
+        Args:
+            index (int): Zero-based segment index in sketch edge order.
+
+        Returns:
+            tuple: Center [x, y] in metres, radius in metres, and signed sweep in
+            radians.
+        """
         a, b = (np.asarray(self.points[i], dtype=float) for i in self.edges[index])
         bulge = self.arcs[index]["bulge"]
         delta = b-a
@@ -97,9 +208,25 @@ class Sketch:
         return center.tolist(), radius, 4*math.atan(bulge)
 
     def dimension_value(self, index):
+        """Measure the quantity used by a driving dimension.
+
+        Args:
+            index (int): Zero-based segment index in sketch edge order.
+
+        Returns:
+            float: Line length or arc radius, in metres.
+        """
         return self.arc_parameters(index)[1] if self.is_arc(index) else self.length(index)
 
     def segment_points(self, index):
+        """Sample a segment, tessellating arcs at angular steps of at most five degrees.
+
+        Args:
+            index (int): Zero-based segment index in sketch edge order.
+
+        Returns:
+            list: XY point lists in metres, including both exact endpoints.
+        """
         a,b = (self.points[i] for i in self.edges[index])
         if not self.is_arc(index):
             return [list(a),list(b)]
@@ -113,6 +240,12 @@ class Sketch:
 
     @property
     def outline_points(self):
+        """Collect the tessellated boundary in drawing order without repeating a closed
+        outline's first point.
+
+        Returns:
+            list: Independent XY coordinate lists in metres.
+        """
         if not self.edges:
             return copy.deepcopy(self.points)
         result = []
@@ -123,10 +256,22 @@ class Sketch:
         return result
 
     def _polygon(self):
+        """Replace curves with sampled straight edges for area and triangulation
+        calculations.
+
+        Returns:
+            Sketch: Undimensioned polygon approximation retaining closure and thickness.
+        """
         return Sketch(self.outline_points, self.closed, [None]*len(self.outline_points), self.thickness)
 
     @property
     def signed_area(self):
+        """Compute oriented area, using a tessellated polygon for curves.
+
+        Returns:
+            float: Signed square metres; positive for counterclockwise outlines and zero
+            for drafts.
+        """
         if any(self.arcs):
             return self._polygon().signed_area
         return sum(self.points[a][0]*self.points[b][1]-self.points[b][0]*self.points[a][1]
@@ -134,6 +279,11 @@ class Sketch:
 
     @property
     def centroid(self):
+        """Compute the polygon area centroid, approximating curves by tessellation.
+
+        Returns:
+            tuple: XY centroid in metres, or (0, 0) for zero area.
+        """
         if any(self.arcs):
             return self._polygon().centroid
         area = self.signed_area
@@ -144,6 +294,13 @@ class Sketch:
         return tuple(sum((a[i]+b[i])*v for a,b,v in terms)/(6*area) for i in (0,1))
 
     def validate(self):
+        """Check coordinate limits, thickness, topology, dimensions, curves, and geometric
+        relations without solving them.
+
+        Returns:
+            None. Raises ValueError if geometry is malformed, self-intersecting, or
+            violates a constraint.
+        """
         if type(self.closed) is not bool or not isinstance(self.points,list) or len(self.points)>256:
             raise ValueError("A sketch supports at most 256 points and a boolean closed flag")
         for point in self.points:
@@ -204,6 +361,13 @@ class Sketch:
                     raise ValueError(f"The sketch does not satisfy its {kind} constraint")
 
     def _validate_constraints(self):
+        """Check relation structure, supported kinds, unique indices, and straight-edge
+        references.
+
+        Returns:
+            None. Raises ValueError for malformed or duplicate relations; does not solve
+            geometry.
+        """
         if not isinstance(self.constraints,list) or len(self.constraints)>1024:
             raise ValueError("Constraints must be a list of at most 1024 relations")
         seen = set()
@@ -225,6 +389,18 @@ class Sketch:
             seen.add(key)
 
     def add_constraint(self,kind,segments):
+        """Solve a new horizontal, vertical, or equal relation on a copy, then commit only
+        a valid result.
+
+        Args:
+            kind (str): Supported relation kind: horizontal, vertical, or equal.
+            segments (iterable): Zero-based straight-edge indices affected by a
+                relation.
+
+        Returns:
+            bool: True if a relation was added, False if already present; conflicts
+            raise ValueError without committing the candidate.
+        """
         if kind not in ("horizontal","vertical","equal"):
             raise ValueError("Choose Horizontal, Vertical or Equal")
         if not segments:
@@ -254,11 +430,29 @@ class Sketch:
         return True
 
     def remove_constraint(self,index):
+        """Remove one geometric relation without moving the outline.
+
+        Args:
+            index (int): Zero-based relation index in the constraints list.
+
+        Returns:
+            None. Mutates constraints; an invalid index raises ValueError.
+        """
         if type(index) is not int or not 0<=index<len(self.constraints):
             raise ValueError("Select a constraint to delete")
         self.constraints.pop(index)
 
     def add_point(self, point):
+        """Append an undimensioned straight segment to an open outline, committing only
+        after validation.
+
+        Args:
+            point (sequence): New endpoint [x, y] in sketch metres.
+
+        Returns:
+            None. Updates points and segment metadata; invalid geometry raises
+            ValueError.
+        """
         if self.closed:
             raise ValueError("The face is closed. Start a new sketch to draw another outline.")
         candidate = copy.deepcopy(self)
@@ -271,7 +465,16 @@ class Sketch:
         self.points,self.dimensions,self.arcs = candidate.points,candidate.dimensions,candidate.arcs
 
     def without_segment(self, index):
-        """Return the remaining connected outlines without moving other edges."""
+        """Remove an edge into independent open outlines, preserving surviving geometry and
+        remapping constraints.
+
+        Args:
+            index (int): Zero-based segment index in sketch edge order.
+
+        Returns:
+            list: One or two validated Sketch objects, or an empty Sketch when no edges
+            remain; this sketch is unchanged.
+        """
         if not 0 <= index < len(self.edges):
             raise ValueError("Select a line or arc to delete")
         if self.closed:
@@ -302,6 +505,18 @@ class Sketch:
         return result or [Sketch(thickness=self.thickness)]
 
     def add_arc(self, through, end, close=False):
+        """Append a three-point arc from the last endpoint, optionally closing at the first
+        point. Commit only after validation.
+
+        Args:
+            through (sequence): Distinct point [x, y] on the intended arc, in metres.
+            end (sequence): Arc end [x, y] in sketch metres.
+            close (bool): End at the first sketch point and close the outline when True.
+
+        Returns:
+            None. Updates geometry and segment metadata; invalid arcs or closure raise
+            ValueError.
+        """
         if self.closed or not self.points:
             raise ValueError("Choose an arc start point in an open sketch")
         candidate = copy.deepcopy(self)
@@ -320,6 +535,11 @@ class Sketch:
         self.points,self.closed,self.dimensions,self.arcs = candidate.points,candidate.closed,candidate.dimensions,candidate.arcs
 
     def close(self):
+        """Close an open outline with an undimensioned straight edge after validation.
+
+        Returns:
+            None. Updates closure and metadata; an already closed sketch is unchanged.
+        """
         if self.closed:
             return
         candidate = copy.deepcopy(self)
@@ -331,6 +551,17 @@ class Sketch:
         self.closed,self.dimensions,self.arcs = True,candidate.dimensions,candidate.arcs
 
     def set_dimension(self,index,length):
+        """Apply a driving line length or arc radius on a copy, solve affected geometry,
+        and commit a valid result. A circle's radius edit resizes the whole circle.
+
+        Args:
+            index (int): Zero-based segment index in sketch edge order.
+            length (float): Driving line length or arc radius in metres.
+
+        Returns:
+            None. Updates points, arcs, and/or dimensions; conflicts raise ValueError
+            without committing the candidate.
+        """
         if not 0 <= index < len(self.edges):
             raise ValueError("Select a line first")
         if not math.isfinite(length) or length<1e-6 or length>1e6:
@@ -357,7 +588,18 @@ class Sketch:
         self.points,self.dimensions,self.arcs = candidate.points,candidate.dimensions,candidate.arcs
 
     def move_point(self, index, position):
-        """Move one endpoint; keep other endpoints and explicit constraints."""
+        """Move one endpoint while keeping other endpoints fixed and respecting explicit
+        relations and dimensions. Commit only a validated solution.
+
+        Args:
+            index (int): Zero-based endpoint index in the points list.
+            position (list or tuple): Requested endpoint [x, y] in metres; the solver
+                can restrict motion to satisfy constraints.
+
+        Returns:
+            None. Updates points and arcs when movement is possible; invalid positions
+            or conflicts raise ValueError.
+        """
         if type(index) is not int or not 0 <= index < len(self.points):
             raise ValueError("Select a sketch point to move")
         if not isinstance(position, (list, tuple)) or len(position) != 2 or any(
@@ -373,7 +615,21 @@ class Sketch:
         self.points, self.arcs = candidate.points, candidate.arcs
 
     def _solve(self,preserve_axes=True,orient=(),drag=None):
-        """Solve explicit relations/dimensions transactionally in a candidate."""
+        """Solve relations and dimensions in this candidate using iterative least squares.
+        Call on a copy when transactional edits are required.
+
+        Args:
+            preserve_axes (bool): Retain existing incidental horizontal/vertical
+                alignment when solving.
+            orient (iterable): Newly added horizontal/vertical relations used to seed
+                endpoint positions.
+            drag (tuple, optional): (point index, target XY metres); restrict solving to
+                that endpoint, or None for ordinary dimension solving.
+
+        Returns:
+            None. Mutates candidate points and driving arc bulges; unresolved
+            constraints raise ValueError.
+        """
         self._validate_constraints()
         initial = np.asarray(self.points,dtype=float)
         points = initial.copy()
@@ -395,6 +651,16 @@ class Sketch:
         for _ in range(150):
             residual,jacobian = [],[]
             def length_row(index):
+                """Form the current line length and its derivatives for the solver's
+                working points.
+
+                Args:
+                    index (int): Zero-based segment index in sketch edge order.
+
+                Returns:
+                    tuple: Scalar length and flat Jacobian row; a collapsed edge raises
+                    ValueError.
+                """
                 a,b = self.edges[index]
                 delta = points[b]-points[a]
                 current = np.linalg.norm(delta)
@@ -461,6 +727,12 @@ class Sketch:
                 self.arcs[i]["bulge"] = radius_bulge(self.points[a],self.points[b],self.dimensions[i],self.arcs[i]["bulge"])
 
     def geometry(self):
+        """Serialize editable geometry, including optional curves and relations when
+        present.
+
+        Returns:
+            dict: Independent JSON-compatible sketch definition in metres.
+        """
         result = dict(type="sketch",points=copy.deepcopy(self.points),closed=self.closed,
                       dimensions=list(self.dimensions),thickness=self.thickness)
         if any(self.arcs):
@@ -471,6 +743,15 @@ class Sketch:
 
     @classmethod
     def from_geometry(cls,g):
+        """Validate a sketch envelope, copy its editable data, and check all geometry and
+        constraints.
+
+        Args:
+            g (dict): Serialized geometry envelope to parse and validate.
+
+        Returns:
+            Sketch: Independent validated sketch; invalid input raises ValueError.
+        """
         if not isinstance(g,dict) or set(g)-{"arcs","constraints"}!={"type","points","closed","dimensions","thickness"} or g["type"]!="sketch":
             raise ValueError("Expected a sketch with points, closed, dimensions and thickness")
         if not isinstance(g["dimensions"],list):
@@ -480,7 +761,13 @@ class Sketch:
         return sketch
 
     def triangles(self):
-        """Ear clipping for one simple polygon, including concave outlines."""
+        """Validate and triangulate a closed simple outline by ear clipping, tessellating
+        curves first.
+
+        Returns:
+            list: Counterclockwise index triples into outline_points; invalid or open
+            geometry raises ValueError.
+        """
         self.validate()
         if not self.closed:
             raise ValueError("Close the outline to create a face before importing it into a scene")
@@ -489,7 +776,13 @@ class Sketch:
         return self._triangles_unchecked()
 
     def _triangles_unchecked(self):
-        """Triangulate validated (possibly tessellated) polygon points."""
+        """Ear-clip an already validated straight-edge polygon, removing redundant
+        collinear vertices.
+
+        Returns:
+            list: Counterclockwise triples indexing this sketch's points; triangulation
+            failure raises ValueError.
+        """
         span = max(max(p[axis] for p in self.points)-min(p[axis] for p in self.points) for axis in (0,1))
         tolerance = max(1e-30, span*span*1e-12)
         remaining = list(range(len(self.points)))
@@ -519,7 +812,16 @@ class Sketch:
 
 
 def prism_vertices(sketch):
-    """Flat-shaded, outward-facing closed prism, centered on its mass centroid."""
+    """Build a flat-shaded closed prism with outward normals, centered on its area centroid
+    in XY and symmetric about Z=0.
+
+    Args:
+        sketch (Sketch): Outline and thickness used by this operation, in metres.
+
+    Returns:
+        numpy.ndarray: Flat float32 XYZ/normal data for triangles; invalid or
+        unrenderable geometry raises ValueError.
+    """
     triangles = sketch.triangles()
     cx,cy = sketch.centroid
     low,high = -sketch.thickness/2,sketch.thickness/2
@@ -529,6 +831,19 @@ def prism_vertices(sketch):
     result = []
 
     def triangle(a,b,c):
+        """Append one triangle and its computed flat normal to the enclosing output list.
+
+        Args:
+            a (sequence): Local XYZ triangle vertex in metres, ordered for the desired
+                outward normal.
+            b (sequence): Local XYZ triangle vertex in metres, ordered for the desired
+                outward normal.
+            c (sequence): Local XYZ triangle vertex in metres, ordered for the desired
+                outward normal.
+
+        Returns:
+            None. Extends the prism builder's result with three XYZ/normal vertices.
+        """
         normal = np.cross(np.subtract(b,a),np.subtract(c,a))
         normal /= np.linalg.norm(normal)
         for p in (a,b,c):

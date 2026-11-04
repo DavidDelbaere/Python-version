@@ -25,7 +25,7 @@
                 "-m",
                 "PyInstaller",
                 "--noconfirm",
-                "main.spec"
+                "src/main.spec"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"

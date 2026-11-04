@@ -19,6 +19,16 @@ class ConstraintList(QListWidget):
     delete_requested = Signal()
 
     def keyPressEvent(self,event):
+        """Emit delete_requested for unmodified Delete/Backspace; delegate other keys to
+        the list widget.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Accepts handled key events.
+        """
         if event.key() in (Qt.Key_Delete,Qt.Key_Backspace) and event.modifiers()==Qt.NoModifier:
             self.delete_requested.emit()
             event.accept()
@@ -33,6 +43,16 @@ class SketchCanvas(QWidget):
     error = Signal(str)
 
     def __init__(self,editor):
+        """Create a sketch canvas with drawing, selection, snapping, drag, and pan state
+        linked to its editor.
+
+        Args:
+            editor (PartEditor): Owner providing the working sketch, commit operations,
+                and selection state.
+
+        Returns:
+            None.
+        """
         super().__init__()
         self.editor = editor
         self.zoom = 1500.0
@@ -57,9 +77,27 @@ class SketchCanvas(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
     def screen(self,p):
+        """Convert sketch XY metres to canvas pixels using zoom and an inverted screen Y
+        axis.
+
+        Args:
+            p (sequence): Sketch [x, y] position in metres.
+
+        Returns:
+            QPointF: Widget-local pixel coordinates.
+        """
         return QPointF(self.origin.x()+p[0]*self.zoom,self.origin.y()-p[1]*self.zoom)
 
     def world(self,p):
+        """Convert a screen position to sketch coordinates with endpoint/edge snapping, 1
+        mm grid rounding, and drawing-axis hints.
+
+        Args:
+            p (QPointF): Widget-local pointer position in logical pixels.
+
+        Returns:
+            list: XY metres; also updates snap target and hysteresis lock state.
+        """
         sketch = self.editor.sketch
         context_edges = (self.editor.sketch_context_geometry()[1]
                          if hasattr(self.editor, "sketch_context_geometry") else [])
@@ -128,11 +166,25 @@ class SketchCanvas(QWidget):
         return [x,y]
 
     def center_origin(self):
+        """Center the sketch origin in the widget and clear snapping locks.
+
+        Returns:
+            None. Schedules a repaint without moving geometry.
+        """
         self.origin = QPointF(self.width()/2,self.height()/2)
         self._snap_lock = self.snap_target = None
         self.update()
 
     def hit(self,p):
+        """Hit-test dimension labels, straight segments, and analytic arcs within screen-
+        space tolerances.
+
+        Args:
+            p (QPointF): Widget-local pointer position in logical pixels.
+
+        Returns:
+            int: Nearest segment index, or -1 if nothing is close enough.
+        """
         for i,label in self.labels:
             if math.hypot(p.x()-label.x(),p.y()-label.y())<30:
                 return i
@@ -162,6 +214,16 @@ class SketchCanvas(QWidget):
         return closest
 
     def segment_path(self,index):
+        """Construct a screen-space painter path for a straight segment or analytic
+        circular arc.
+
+        Args:
+            index (int): Zero-based sketch edge index; -1 represents no selection in
+                selection callbacks.
+
+        Returns:
+            QPainterPath: Segment path using current pan and zoom.
+        """
         sketch = self.editor.sketch
         a,b = (sketch.points[i] for i in sketch.edges[index])
         path = QPainterPath(self.screen(a))
@@ -176,6 +238,17 @@ class SketchCanvas(QWidget):
         return path
 
     def mousePressEvent(self,event):
+        """Start panning/endpoint dragging, select segments, or add line/arc/circle
+        geometry according to the active tool.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Commits valid candidates through the editor and emits selection/error
+            signals as needed.
+        """
         self.setFocus()
         if event.button()==Qt.MiddleButton:
             self.pan = event.position()
@@ -244,11 +317,31 @@ class SketchCanvas(QWidget):
             self.error.emit(str(error))
 
     def mouseDoubleClickEvent(self,event):
+        """Request a dimension editor for a hit segment when drawing is inactive or the
+        outline is closed.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Emits dimension_requested with the segment index when applicable.
+        """
         index = self.hit(event.position())
         if index>=0 and (not self.drawing or self.editor.sketch.closed):
             self.dimension_requested.emit(index)
 
     def mouseMoveEvent(self,event):
+        """Preview a constrained endpoint drag or update panning, snapped cursor position,
+        and drawing preview.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Repaints; drag previews are committed only on mouse release.
+        """
         if self.drag_index is not None:
             position = [(event.position().x()-self.origin.x())/self.zoom,
                         (self.origin.y()-event.position().y())/self.zoom]
@@ -268,6 +361,17 @@ class SketchCanvas(QWidget):
         self.update()
 
     def mouseReleaseEvent(self,event):
+        """Commit one valid endpoint-drag edit on left release, or finish middle-button
+        panning.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Restores the original before committing so the drag produces one undo
+            step.
+        """
         if event.button()==Qt.LeftButton and self.drag_index is not None:
             original, candidate = self.drag_original, self.drag_candidate
             self.editor.sketch = original
@@ -284,12 +388,31 @@ class SketchCanvas(QWidget):
             self.pan = None
 
     def leaveEvent(self,event):
+        """Clear cursor/snapping preview when the pointer leaves the canvas and delegate
+        the event.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Schedules a repaint.
+        """
         self.cursor = None
         self._snap_lock = self.snap_target = None
         self.update()
         super().leaveEvent(event)
 
     def wheelEvent(self,event):
+        """Zoom around the pointer while keeping the underlying screen location stable.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Updates zoom/origin within supported limits and repaints.
+        """
         old = self.zoom
         self.zoom = max(10,min(1e7,self.zoom*(1.2 if event.angleDelta().y()>0 else 1/1.2)))
         point = event.position()
@@ -297,6 +420,15 @@ class SketchCanvas(QWidget):
         self.update()
 
     def keyPressEvent(self,event):
+        """Cancel an endpoint drag or leave drawing mode on Escape; delegate other keys.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Restores uncommitted drag geometry when cancelled.
+        """
         if event.key()==Qt.Key_Escape:
             if self.drag_index is not None:
                 self.editor.sketch = self.drag_original
@@ -309,6 +441,12 @@ class SketchCanvas(QWidget):
             super().keyPressEvent(event)
 
     def fit(self):
+        """Fit the outline and optional projected solid context into the canvas with a
+        margin.
+
+        Returns:
+            None. Updates zoom and origin, then repaints.
+        """
         points = list(self.editor.sketch.outline_points)
         if hasattr(self.editor, "sketch_context_points"):
             points.extend(self.editor.sketch_context_points())
@@ -322,6 +460,16 @@ class SketchCanvas(QWidget):
         self.update()
 
     def paintEvent(self,event):
+        """Draw grid, context, outline, dimensions, relations, endpoints, snapping markers,
+        and tool previews.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Paints the canvas and refreshes dimension-label hit-test positions.
+        """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.fillRect(self.rect(),QColor("#2e2e33"))
@@ -435,6 +583,15 @@ class SketchCanvas(QWidget):
 
 class PartEditor(QMainWindow):
     def __init__(self,path=None):
+        """Build the sketch editor, default draft, property controls, actions, and undo
+        stacks; optionally load a document.
+
+        Args:
+            path (str or Path): Source or destination file path used by this operation.
+
+        Returns:
+            None.
+        """
         super().__init__()
         self.sceneWindows = []
         self.resize(1150,760)
@@ -549,6 +706,12 @@ class PartEditor(QMainWindow):
             self.open_path(path)
 
     def make_actions(self):
+        """Create file/edit/view/help menus, sketch tools, constraint actions, and keyboard
+        shortcuts.
+
+        Returns:
+            None. Connects UI actions to editor callbacks.
+        """
         file_menu = self.menuBar().addMenu("File")
         new_menu = file_menu.addMenu("New")
         new_scene = QAction("Scene", self)
@@ -646,6 +809,16 @@ class PartEditor(QMainWindow):
         relations_menu.addAction(remove)
 
     def resizeEvent(self, event):
+        """Hide properties automatically below 800 pixels and restore them when space
+        returns.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Delegates resize handling and tracks whether hiding was automatic.
+        """
         super().resizeEvent(event)
         if not hasattr(self, "propertiesDock"):
             return
@@ -657,6 +830,12 @@ class PartEditor(QMainWindow):
             self._propertiesAutoHidden = False
 
     def show_controls(self):
+        """Display the sketch editor's drawing, dimensioning, constraints, export, and
+        navigation help.
+
+        Returns:
+            None. Opens an informational dialog.
+        """
         QMessageBox.information(
             self, "SimuO Part Editor — Controls",
             "1. Draw lines: click to place connected points. Click the first point or Close outline to create a face.\n\n"
@@ -673,6 +852,16 @@ class PartEditor(QMainWindow):
         )
 
     def set_drawing(self,value):
+        """Toggle straight-line drawing and clear incompatible arc/circle modes and
+        previews.
+
+        Args:
+            value (bool): Enable the requested drawing mode when True; disable it when
+                False.
+
+        Returns:
+            None. Updates canvas state and schedules a repaint.
+        """
         if value and hasattr(self,"arc_action"):
             self.arc_action.setChecked(False)
         if value and hasattr(self,"circle_action"):
@@ -685,6 +874,16 @@ class PartEditor(QMainWindow):
         self.canvas.update()
 
     def set_arcs(self,value):
+        """Toggle three-point arc drawing and clear incompatible modes and pending curve
+        points.
+
+        Args:
+            value (bool): Enable the requested drawing mode when True; disable it when
+                False.
+
+        Returns:
+            None. Updates action checks and canvas state.
+        """
         if value:
             self.line_action.setChecked(False)
             self.circle_action.setChecked(False)
@@ -696,6 +895,15 @@ class PartEditor(QMainWindow):
         self.canvas.update()
 
     def set_circles(self,value):
+        """Toggle circle drawing and clear incompatible modes and previews.
+
+        Args:
+            value (bool): Enable the requested drawing mode when True; disable it when
+                False.
+
+        Returns:
+            None. Updates actions, canvas state, and enabled-tool guidance.
+        """
         if value:
             self.line_action.setChecked(False)
             self.arc_action.setChecked(False)
@@ -709,6 +917,11 @@ class PartEditor(QMainWindow):
             self.statusBar().showMessage("Circle: click the center, then the edge. Esc cancels.")
 
     def select_mode(self):
+        """Disable all drawing tools and discard pending curve preview points.
+
+        Returns:
+            None. Leaves geometry unchanged and schedules a repaint.
+        """
         self.line_action.setChecked(False)
         self.arc_action.setChecked(False)
         self.circle_action.setChecked(False)
@@ -718,6 +931,16 @@ class PartEditor(QMainWindow):
         self.canvas.update()
 
     def commit(self,candidate):
+        """Validate a sketch candidate before replacing the working sketch and recording
+        undo history.
+
+        Args:
+            candidate (Sketch): Independently edited outline to validate and commit.
+
+        Returns:
+            None. Clears redo, marks dirty, and refreshes controls; invalid candidates
+            raise ValueError.
+        """
         candidate.validate()
         self.history.append(copy.deepcopy(self.sketch))
         self.future.clear()
@@ -728,6 +951,11 @@ class PartEditor(QMainWindow):
         self.refresh()
 
     def undo(self):
+        """Restore the previous sketch and move the current one to redo history.
+
+        Returns:
+            None. Updates drawing mode and dirty state if undo history exists.
+        """
         if self.history:
             self.future.append(copy.deepcopy(self.sketch))
             self.sketch = self.history.pop()
@@ -737,6 +965,11 @@ class PartEditor(QMainWindow):
             self.refresh()
 
     def redo(self):
+        """Restore a redo sketch and preserve the current one in undo history.
+
+        Returns:
+            None. Updates drawing mode and dirty state if redo history exists.
+        """
         if self.future:
             self.history.append(copy.deepcopy(self.sketch))
             self.sketch = self.future.pop()
@@ -746,6 +979,13 @@ class PartEditor(QMainWindow):
             self.refresh()
 
     def refresh(self):
+        """Synchronize title, segment table, dimensions, thickness, constraints, summary,
+        and canvas with the current sketch.
+
+        Returns:
+            None. Blocks control signals while populating values to avoid recursive
+            edits.
+        """
         self.setWindowTitle(f"{'*' if self.dirty else ''}{self.data['name']} — SimuO Part Editor")
         self.lines.blockSignals(True)
         self.lines.setRowCount(len(self.sketch.edges))
@@ -768,6 +1008,18 @@ class PartEditor(QMainWindow):
         self.canvas.update()
 
     def select_line(self,index,sync_table=True):
+        """Select an edge and configure its line-length or arc-radius controls, optionally
+        synchronizing the table row.
+
+        Args:
+            index (int): Zero-based sketch edge index; -1 represents no selection in
+                selection callbacks.
+            sync_table (bool): Also select the matching table row when True.
+
+        Returns:
+            None. Invalid indices clear the canvas selection and disable dimension
+            controls.
+        """
         if not 0<=index<len(self.sketch.edges):
             self.canvas.selection = -1
             self.dimension_button.setEnabled(False)
@@ -792,6 +1044,11 @@ class PartEditor(QMainWindow):
         self.canvas.update()
 
     def selected_segments(self):
+        """Collect selected table rows, falling back to the canvas selection.
+
+        Returns:
+            list: Sorted valid segment indices, or an empty list.
+        """
         if not hasattr(self,"lines"):
             return []
         rows = sorted({index.row() for index in self.lines.selectionModel().selectedRows()
@@ -801,11 +1058,25 @@ class PartEditor(QMainWindow):
         return rows
 
     def on_segment_selection_changed(self):
+        """Synchronize the active canvas edge and dimension controls with table selection.
+
+        Returns:
+            None. Keeps multiple selected rows intact.
+        """
         rows = sorted({index.row() for index in self.lines.selectionModel().selectedRows()})
         current = self.lines.currentRow()
         self.select_line(current if current in rows else rows[0] if rows else -1,sync_table=False)
 
     def select_segments(self,indices):
+        """Replace table/canvas selection with the supplied valid edge indices.
+
+        Args:
+            indices (iterable): Zero-based sketch edge indices to select; invalid
+                indices are ignored.
+
+        Returns:
+            None. Selects rows while blocking recursive selection signals.
+        """
         indices = sorted({i for i in indices if 0<=i<len(self.sketch.edges)})
         self.lines.blockSignals(True)
         self.lines.clearSelection()
@@ -818,12 +1089,30 @@ class PartEditor(QMainWindow):
         self.canvas.update()
 
     def toggle_segment_selection(self,index):
+        """Toggle one edge in the current table multi-selection.
+
+        Args:
+            index (int): Zero-based sketch edge index; -1 represents no selection in
+                selection callbacks.
+
+        Returns:
+            None. Updates the table and canvas through select_segments.
+        """
         rows = self.lines.selectionModel().selectedRows()
         indices = {row.row() for row in rows}
         indices.symmetric_difference_update({index})
         self.select_segments(indices)
 
     def apply_geometric_constraint(self,kind):
+        """Add a relation to selected edges on a copy, then commit a solved sketch.
+
+        Args:
+            kind (str): Relation kind: horizontal, vertical, or equal.
+
+        Returns:
+            None. Displays duplicate guidance or a warning on conflicts without
+            committing invalid geometry.
+        """
         try:
             candidate = copy.deepcopy(self.sketch)
             if candidate.add_constraint(kind,self.selected_segments()):
@@ -834,6 +1123,12 @@ class PartEditor(QMainWindow):
             QMessageBox.warning(self,"Cannot Apply Constraint",str(error))
 
     def refresh_constraints(self):
+        """Rebuild the constraints list from geometric relations and driving dimensions,
+        preserving a matching selection.
+
+        Returns:
+            None. Updates list contents and deletion-button availability.
+        """
         item = self.constraint_list.currentItem()
         selected = item.data(Qt.UserRole) if item is not None else None
         self.constraint_list.blockSignals(True)
@@ -857,6 +1152,17 @@ class PartEditor(QMainWindow):
         self.delete_constraint_button.setEnabled(self.constraint_list.currentItem() is not None)
 
     def select_constraint(self,item,previous=None):
+        """Highlight the segments affected by the selected relation or dimension entry.
+
+        Args:
+            item (QListWidgetItem or None): Constraint entry storing relation/dimension
+                kind and index.
+            previous (QListWidgetItem, optional): Previously selected constraint entry;
+                currently unused.
+
+        Returns:
+            None. Enables deletion when a constraint item exists.
+        """
         self.delete_constraint_button.setEnabled(item is not None)
         if item is None:
             return
@@ -865,6 +1171,12 @@ class PartEditor(QMainWindow):
         self.select_segments(indices)
 
     def delete_selected_constraint(self):
+        """Remove the selected relation or driving dimension on a copy without deleting
+        geometry.
+
+        Returns:
+            None. Commits a valid sketch or displays an error/guidance.
+        """
         item = self.constraint_list.currentItem()
         if item is None:
             self.statusBar().showMessage("Select a constraint or dimension from the Constraints list first.",5000)
@@ -881,6 +1193,12 @@ class PartEditor(QMainWindow):
             QMessageBox.warning(self,"Cannot Delete Constraint",str(error))
 
     def apply_dimension(self):
+        """Convert the selected dimension control from millimetres to metres and apply it
+        through a candidate sketch.
+
+        Returns:
+            None. Commits valid geometry or displays a dimension error.
+        """
         try:
             candidate = copy.deepcopy(self.sketch)
             candidate.set_dimension(self.canvas.selection,self.length.value()/1000)
@@ -889,6 +1207,16 @@ class PartEditor(QMainWindow):
             QMessageBox.warning(self,"Cannot Apply Dimension",str(error))
 
     def dimension_dialog(self,index):
+        """Prompt for a selected segment's line length or arc radius in millimetres and
+        apply an accepted value.
+
+        Args:
+            index (int): Zero-based sketch edge index; -1 represents no selection in
+                selection callbacks.
+
+        Returns:
+            None. Cancelling leaves the geometry unchanged.
+        """
         if not 0<=index<len(self.sketch.edges):
             self.statusBar().showMessage("Select a line or its dimension label first.",5000)
             return
@@ -901,12 +1229,25 @@ class PartEditor(QMainWindow):
             self.apply_dimension()
 
     def clear_dimension(self):
+        """Remove the selected edge's driving dimension while preserving its current
+        geometry.
+
+        Returns:
+            None. Commits only when a dimension exists.
+        """
         if 0<=self.canvas.selection<len(self.sketch.edges) and self.sketch.dimensions[self.canvas.selection] is not None:
             candidate = copy.deepcopy(self.sketch)
             candidate.dimensions[self.canvas.selection] = None
             self.commit(candidate)
 
     def delete_selected_segment(self):
+        """Remove the selected edge while retaining one outline; reject edits that split
+        into multiple sketches in this base editor.
+
+        Returns:
+            None. Commits the deletion or displays guidance; the feature editor supports
+            split outlines.
+        """
         try:
             remaining = self.sketch.without_segment(self.canvas.selection)
             if len(remaining) > 1:
@@ -919,6 +1260,11 @@ class PartEditor(QMainWindow):
             self.statusBar().showMessage(str(error), 8000)
 
     def close_face(self):
+        """Validate and close the current outline through a sketch candidate.
+
+        Returns:
+            None. Commits valid closure or displays an error.
+        """
         try:
             candidate = copy.deepcopy(self.sketch)
             candidate.close()
@@ -927,22 +1273,52 @@ class PartEditor(QMainWindow):
             QMessageBox.warning(self,"Cannot Close Face",str(error))
 
     def change_name(self,value):
+        """Update the document's name, mark it dirty, and refresh the window title.
+
+        Args:
+            value (str): Edited part name to store in document data.
+
+        Returns:
+            None. Does not validate the name until saving.
+        """
         self.data["name"] = value
         self.dirty = True
         self.setWindowTitle(f"*{value} — SimuO Part Editor")
 
     def change_thickness(self,value):
+        """Convert the thickness control's millimetres to metres and commit an edited
+        sketch.
+
+        Args:
+            value (float): Thickness/next-extrusion control value in millimetres,
+                converted to metres.
+
+        Returns:
+            None. Updates history and dirty state through commit.
+        """
         candidate = copy.deepcopy(self.sketch)
         candidate.thickness = value/1000
         self.commit(candidate)
 
     def confirm_changes(self):
+        """Protect dirty documents with Save/Discard/Cancel before replacing or closing
+        them.
+
+        Returns:
+            bool: True if clean, discarded, or successfully saved; False on
+            cancellation/save failure.
+        """
         if not self.dirty:
             return True
         answer = QMessageBox.question(self,"Unsaved Part","Save changes to this part?",QMessageBox.Save|QMessageBox.Discard|QMessageBox.Cancel,QMessageBox.Save)
         return self.save() if answer==QMessageBox.Save else answer==QMessageBox.Discard
 
     def new_scene(self):
+        """Open an independent empty scene editor and retain a reference to its window.
+
+        Returns:
+            None. Leaves the current part open.
+        """
         from simuO import SimuOMainWindow
 
         window = SimuOMainWindow()
@@ -950,6 +1326,12 @@ class PartEditor(QMainWindow):
         window.show()
 
     def new_part(self):
+        """Protect unsaved changes, then reset the base editor to a new empty sketch
+        document.
+
+        Returns:
+            None. Clears path, history, selection, and dirty state after confirmation.
+        """
         if self.confirm_changes():
             self.data,self.sketch,self.path = new_document(),Sketch(),None
             self.history.clear()
@@ -962,11 +1344,25 @@ class PartEditor(QMainWindow):
             self.refresh()
 
     def open_part(self):
+        """Prompt for a part file and open it after protecting unsaved changes.
+
+        Returns:
+            None. Cancellation preserves the current document.
+        """
         path,_ = QFileDialog.getOpenFileName(self,"Open SimuO Part","","SimuO Parts (*.simuOPart)")
         if path and self.confirm_changes():
             self.open_path(path)
 
     def open_path(self,path):
+        """Load an editable document before replacing sketch/editor state and framing its
+        geometry.
+
+        Args:
+            path (str or Path): Source or destination file path used by this operation.
+
+        Returns:
+            bool: True when loaded; False after a warning if loading fails.
+        """
         try:
             data,sketch = open_document(path)
         except (OSError,ValueError,TypeError,OverflowError) as error:
@@ -985,9 +1381,25 @@ class PartEditor(QMainWindow):
         return True
 
     def save(self):
+        """Save to the current path, or prompt for a path when the document has never been
+        saved.
+
+        Returns:
+            bool: True on successful save; False on cancellation or failure.
+        """
         return self._save_to(self.path) if self.path else self.save_as()
 
     def export_mesh(self, kind):
+        """Prompt for an OBJ/STL destination and export a closed sketch without changing
+        the editable document's path or dirty state.
+
+        Args:
+            kind (str): Mesh format, obj or stl.
+
+        Returns:
+            bool: True when exported; False for an open sketch, cancellation, or
+            reported failure.
+        """
         if not self.sketch.closed:
             QMessageBox.warning(self, "Cannot Export Part", "Close the sketch outline before exporting OBJ or STL. Use Save SimuO Part to keep an unfinished sketch.")
             return False
@@ -1014,6 +1426,12 @@ class PartEditor(QMainWindow):
         return True
 
     def save_as(self):
+        """Prompt for a .simuOPart destination, confirm extension-adjusted overwrites, and
+        save.
+
+        Returns:
+            bool: True when saved; False on cancellation or failure.
+        """
         path,_ = QFileDialog.getSaveFileName(self,"Save SimuO Part",str(self.path or Path(self.data["name"]+".simuOPart")),"SimuO Parts (*.simuOPart)")
         if not path:
             return False
@@ -1025,6 +1443,15 @@ class PartEditor(QMainWindow):
         return self._save_to(path)
 
     def _save_to(self,path):
+        """Write a validated sketch document and only then update the editor's path and
+        clean state.
+
+        Args:
+            path (str or Path): Source or destination file path used by this operation.
+
+        Returns:
+            bool: True on success; False after displaying a save error.
+        """
         try:
             data = save_document(path,self.data,self.sketch)
         except (OSError,ValueError,OverflowError) as error:
@@ -1036,10 +1463,28 @@ class PartEditor(QMainWindow):
         return True
 
     def closeEvent(self,event):
+        """Protect unsaved work before accepting or ignoring the window-close event.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Controls closure through the event object.
+        """
         event.accept() if self.confirm_changes() else event.ignore()
 
 
 def run_part_editor(path=None):
+    """Create/show the current feature-based editor, reuse or create QApplication, and
+    enter the Qt event loop.
+
+    Args:
+        path (str or Path): Source or destination file path used by this operation.
+
+    Returns:
+        int: Qt event-loop exit code after the editor application finishes.
+    """
     from feature_editor import FeaturePartEditor
     app = QApplication.instance() or QApplication([])
     window = FeaturePartEditor(path)

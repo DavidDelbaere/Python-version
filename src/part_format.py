@@ -7,6 +7,19 @@ import re
 
 
 def number(value, label, minimum=None, maximum=None):
+    """Validate a finite numeric scalar, excluding booleans, against optional inclusive
+    bounds.
+
+    Args:
+        value (int or float): Finite numeric value; booleans are rejected.
+        label (str): Field name used in validation error messages.
+        minimum (float, optional): Inclusive lower bound; None leaves it unbounded.
+        maximum (float, optional): Inclusive upper bound; None leaves it unbounded.
+
+    Returns:
+        float: Converted value; raises ValueError for invalid numbers or bounds
+        violations.
+    """
     try:
         valid = not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
     except OverflowError:
@@ -21,6 +34,17 @@ def number(value, label, minimum=None, maximum=None):
 
 
 def vector(value, label, positive=False):
+    """Validate a JSON three-component numeric list, optionally requiring positive
+    components.
+
+    Args:
+        value (list): Exactly three finite numeric components; booleans are rejected.
+        label (str): Field name used in validation error messages.
+        positive (bool): Require every component to be strictly positive when True.
+
+    Returns:
+        tuple: Three finite floats; raises ValueError for invalid input.
+    """
     if not isinstance(value, list) or len(value) != 3:
         raise ValueError(f"{label} must contain three numbers")
     result = tuple(number(x, label) for x in value)
@@ -30,6 +54,18 @@ def vector(value, label, positive=False):
 
 
 def fields(value, label, required, optional=()):
+    """Check that a JSON object contains all required keys and no unsupported keys.
+
+    Args:
+        value (dict): JSON object whose required and allowed keys are checked.
+        label (str): Field name used in validation error messages.
+        required (iterable): Keys that the JSON object must contain.
+        optional (iterable): Additional allowed JSON keys; empty by default.
+
+    Returns:
+        dict: The original object, without copying; raises ValueError for a schema
+        mismatch.
+    """
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be an object")
     missing = set(required) - value.keys()
@@ -40,6 +76,15 @@ def fields(value, label, required, optional=()):
 
 
 def string(value, label):
+    """Validate that a value is a nonempty string after whitespace checking.
+
+    Args:
+        value (str): String that must contain at least one non-whitespace character.
+        label (str): Field name used in validation error messages.
+
+    Returns:
+        str: Original string, preserving whitespace; raises ValueError if invalid.
+    """
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must be a nonempty string")
     return value
@@ -65,6 +110,12 @@ class Part:
 
     @property
     def volume(self):
+        """Calculate unscaled volume from box dimensions, sketch area and thickness, or the
+        feature union.
+
+        Returns:
+            float: Volume in cubic metres; draft geometry can have zero volume.
+        """
         if self.features is not None:
             return self.features.volume
         if self.sketch is not None:
@@ -73,11 +124,26 @@ class Part:
 
     @property
     def inertia(self):
-        """Diagonal inertia about the geometric center, in kg m²."""
+        """Estimate diagonal inertia with the bounding-box formula, exact for a uniform box
+        and approximate for other geometry.
+
+        Returns:
+            tuple: Ixx, Iyy, Izz in kg m² using the part's unscaled dimensions and mass.
+        """
         x, y, z = self.size
         return tuple(self.mass * v / 12 for v in (y*y + z*z, x*x + z*z, x*x + y*y))
 
     def vertices(self, position):
+        """Translate geometry points by a supplied position without rotation or scaling.
+
+        Args:
+            position (sequence): XYZ translation in metres added to local geometry
+                points.
+
+        Returns:
+            list: XYZ tuples in metres; box corners, sketch cap points, or feature mesh
+            positions, without normals.
+        """
         if self.features is not None:
             points = self.features.vertices.reshape(-1,6)[:,:3]
             return [tuple(p[i]+position[i] for i in range(3)) for p in points]
@@ -93,8 +159,27 @@ class Part:
 
 
 def load_part(path, allow_draft=False):
-    """Fail closed on unsupported physical semantics; properties are inert metadata."""
+    """Parse and validate an SI JSON part, including geometry, material, derived mass, and
+    initial state. Custom properties are inert metadata.
+
+    Args:
+        path (str or Path): Source or destination file path used by this operation.
+        allow_draft (bool): Permit unfinished sketches or feature histories with no
+            solid; False requires scene-importable geometry.
+
+    Returns:
+        Part: Validated frozen definition; malformed data raises ValueError and file
+        errors propagate.
+    """
     def unique_pairs(pairs):
+        """Build a decoded JSON object while rejecting duplicate keys.
+
+        Args:
+            pairs (list): Decoded JSON key/value pairs before construction of an object.
+
+        Returns:
+            dict: Object made from the supplied pairs; duplicates raise ValueError.
+        """
         result = {}
         for key, value in pairs:
             if key in result:
@@ -103,6 +188,15 @@ def load_part(path, allow_draft=False):
         return result
 
     def invalid_constant(value):
+        """Reject the JSON parser's non-finite constants such as NaN or Infinity.
+
+        Args:
+            value (object): Decoded value to validate; accepted type depends on the
+                field contract.
+
+        Returns:
+            No return value: Always raises ValueError.
+        """
         raise ValueError(f"Non-finite JSON constant: {value}")
 
     with Path(path).open(encoding="utf-8-sig") as stream:

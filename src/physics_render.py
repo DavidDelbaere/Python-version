@@ -17,6 +17,18 @@ from scene import Scene, SceneObject
 
 class PhysicsRenderWindow(QMainWindow):
     def __init__(self, source_scene, parent=None):
+        """Create a nonmodal playback window, independent physics snapshot, render
+        viewport, controls, and running timer.
+
+        Args:
+            source_scene (Scene): Editor scene to snapshot; its transforms and motion
+                are not modified.
+            parent (widget, optional): Owning Qt or Tk widget; None creates an
+                independent Qt widget.
+
+        Returns:
+            None.
+        """
         super().__init__(parent, Qt.Window)
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowTitle("SimuO — Physics Render")
@@ -77,6 +89,12 @@ class PhysicsRenderWindow(QMainWindow):
             self.addAction(action)
 
     def _ground(self):
+        """Build a static visual floor patch sized around the initial simulation scene; the
+        actual solver floor is a plane.
+
+        Returns:
+            SceneObject: Floor box with CPU mesh and top surface at y=0.
+        """
         positions = [obj.position for obj in self.world.scene.objects]
         center = np.mean(positions,axis=0) if positions else [0,0,0]
         span = max([20.] + [abs(v) + max(obj.scale)*max(obj.part.size if obj.part else (1,1,1))
@@ -90,6 +108,12 @@ class PhysicsRenderWindow(QMainWindow):
         return obj
 
     def frame_scene(self):
+        """Frame rotated/scaled simulation objects and optional floor level, excluding the
+        oversized floor patch from bounds.
+
+        Returns:
+            None. Updates the viewport camera.
+        """
         points = []
         for obj in self.world.scene.objects:
             local = obj.asset.vertices.reshape(-1,6)[:,:3]*np.asarray(obj.scale)
@@ -108,28 +132,61 @@ class PhysicsRenderWindow(QMainWindow):
         self.viewport.frameObject(frame)
 
     def set_running(self, running):
+        """Set playback state, clear accumulated time, and update the play button.
+
+        Args:
+            running (bool): True to run playback; False to pause.
+
+        Returns:
+            None. Resets the wall-clock reference to avoid catching up paused time.
+        """
         self.running = running
         self.accumulator = 0
         self.last_time = time.perf_counter()
         self.play.setText("Pause" if running else "Play")
 
     def toggle(self):
+        """Switch between running and paused playback and update the status display.
+
+        Returns:
+            None.
+        """
         self.set_running(not self.running)
         self._update_status()
 
     def reset(self):
+        """Pause playback, rebuild the world's initial state, and refresh the viewport and
+        status.
+
+        Returns:
+            None.
+        """
         self.set_running(False)
         self.world.reset()
         self.viewport.update()
         self._update_status()
 
     def single_step(self):
+        """Pause playback and simulate exactly one fixed timestep.
+
+        Returns:
+            None. Repaints the updated state and status.
+        """
         self.set_running(False)
         self.world.step()
         self.viewport.update()
         self._update_status()
 
     def change_floor(self, enabled):
+        """Enable or disable floor contact, reset playback, and rebuild the visible object
+        uploads when the viewport is ready.
+
+        Args:
+            enabled (bool): Whether the optional floor is enabled.
+
+        Returns:
+            None. Updates both solver floor behavior and the visual floor patch.
+        """
         self.world.floor = enabled
         self.reset()
         if enabled and self.ground not in self.render_scene.objects:
@@ -142,6 +199,12 @@ class PhysicsRenderWindow(QMainWindow):
                 self.viewport.addNewObject(obj)
 
     def tick(self):
+        """Accumulate capped wall time, run whole fixed physics steps, and refresh the
+        display. Solver errors pause playback and display the error.
+
+        Returns:
+            None. Updates the accumulator, simulated state, and UI.
+        """
         now = time.perf_counter()
         elapsed = min(now-self.last_time,0.1)
         self.last_time = now
@@ -160,6 +223,12 @@ class PhysicsRenderWindow(QMainWindow):
         self._update_status()
 
     def _update_status(self):
+        """Display playback time, body counts, legacy-mesh guidance, and up to five dynamic
+        object speeds.
+
+        Returns:
+            None. Replaces the status label text.
+        """
         dynamic = sum(mass > 0 for mass in self.world.masses)
         label = f"{'RUNNING' if self.running else 'PAUSED'} · {self.world.time:.3f} s · {dynamic} dynamic / {len(self.world.bodies)-dynamic} static bodies"
         if self.world.legacy_count:
@@ -169,6 +238,16 @@ class PhysicsRenderWindow(QMainWindow):
         self.stats.setText(label + ("\n"+" | ".join(speeds[:5]) if speeds else ""))
 
     def closeEvent(self, event):
+        """Stop both timers, release uploaded scene buffers, disconnect Bullet, and accept
+        window closure.
+
+        Args:
+            event (Qt event): Input, paint, resize, focus, or close event delivered by
+                the framework.
+
+        Returns:
+            None. Consumes the close event.
+        """
         self.timer.stop()
         self.viewport.timer.stop()
         if self.viewport.isValid():

@@ -11,7 +11,8 @@ a = Analysis(
     binaries=[],
     datas=[(str(project_root / 'Images'), 'Images'),
            (str(project_root / 'Assets'), 'Assets')] + collect_data_files('customtkinter'),
-    hiddenimports=[],
+    # Pillow's compiled Tk bridge imports its locator dynamically.
+    hiddenimports=['PIL._imagingtk', 'PIL._tkinter_finder'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

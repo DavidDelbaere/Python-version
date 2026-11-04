@@ -8,7 +8,15 @@ from scene import Scene
 
 
 def quaternion(rotation):
-    """Editor rotations are degrees and use Rx * Ry * Rz, as in renderer.py."""
+    """Convert editor Euler degrees to Bullet orientation with the renderer's Rx * Ry * Rz
+    convention.
+
+    Args:
+        rotation (sequence): X/Y/Z Euler rotation angles in degrees using Rx * Ry * Rz.
+
+    Returns:
+        tuple: Quaternion components (x, y, z, w).
+    """
     x, y, z = (math.radians(v)/2 for v in rotation)
     sx, sy, sz = math.sin(x), math.sin(y), math.sin(z)
     cx, cy, cz = math.cos(x), math.cos(y), math.cos(z)
@@ -17,6 +25,14 @@ def quaternion(rotation):
 
 
 def editor_rotation(matrix):
+    """Convert a rotation matrix into editor Euler degrees, choosing Z=0 at gimbal lock.
+
+    Args:
+        matrix (array-like): Nine rotation-matrix values, reshaped to 3 by 3.
+
+    Returns:
+        list: X, Y, Z angles compatible with the renderer's rotation order.
+    """
     r = np.asarray(matrix).reshape(3,3)
     y = math.asin(max(-1, min(1, r[0,2])))
     if abs(math.cos(y)) > 1e-7:
@@ -27,6 +43,18 @@ def editor_rotation(matrix):
 
 
 def state_vector(value, label, positive=False):
+    """Normalize finite three-component instance state, optionally requiring positive
+    components.
+
+    Args:
+        value (array-like): Instance vector with exactly three finite components; units
+            follow the state field.
+        label (str): Field name used in validation error messages.
+        positive (bool): Require every component to be strictly positive when True.
+
+    Returns:
+        list: Three floats; invalid shape, numbers, or positivity raise ValueError.
+    """
     result = np.asarray(value, dtype=float)
     if result.shape != (3,) or not np.isfinite(result).all():
         raise ValueError(f"{label} must contain three finite numbers")
@@ -40,6 +68,21 @@ class PhysicsWorld:
 
     def __init__(self, source_scene, gravity=-9.81, floor=True):
         # Lazy import keeps editing and saving available without the solver.
+        """Create a private Bullet DIRECT world from a scene snapshot. Copy mutable
+        instance state, share asset definitions, and release the client if
+        initialization fails.
+
+        Args:
+            source_scene (Scene): Editor scene to snapshot; its transforms and motion
+                are not modified.
+            gravity (float): World Y acceleration in m/s²; negative values pull
+                downward.
+            floor (bool): Whether to create a static collision plane at y=0.
+
+        Returns:
+            None. Creates a solver connection and collision bodies; invalid state or
+            missing dependencies propagate errors.
+        """
         import pybullet as bullet
         self.bullet = bullet
         self.client = bullet.connect(bullet.DIRECT)
@@ -69,6 +112,14 @@ class PhysicsWorld:
             raise
 
     def _build(self):
+        """Create floor and part collision bodies, masses, material response, inertia, and
+        initial velocities. Dynamic mesh bodies use convex hulls; static meshes retain
+        concavities.
+
+        Returns:
+            None. Populates body and mass lists in the connected solver; invalid shapes
+            or numeric ranges raise ValueError.
+        """
         b, client = self.bullet, self.client
         b.setTimeStep(self.dt, physicsClientId=client)
         b.setPhysicsEngineParameter(numSolverIterations=80, numSubSteps=4, deterministicOverlappingPairs=1,
@@ -139,15 +190,38 @@ class PhysicsWorld:
 
     @property
     def time(self):
+        """Calculate elapsed simulated time from the fixed-step count.
+
+        Returns:
+            float: Simulation time in seconds.
+        """
         return self.steps*self.dt
 
     def set_gravity(self, value):
+        """Validate and set uniform gravity along world Y.
+
+        Args:
+            value (float): Finite gravity acceleration along world Y, in m/s².
+
+        Returns:
+            None. Updates this world and Bullet; non-finite gravity raises ValueError.
+        """
         if not math.isfinite(value):
             raise ValueError("Gravity must be finite")
         self.gravity = value
         self.bullet.setGravity(0,value,0,physicsClientId=self.client)
 
     def step(self, count=1):
+        """Advance fixed 1/240-second steps, applying per-object acceleration forces, then
+        synchronize instance state.
+
+        Args:
+            count (int): Number of fixed physics steps to execute; defaults to one.
+
+        Returns:
+            None. Mutates the simulation scene and step counter, leaving the source
+            scene unchanged.
+        """
         b, client = self.bullet, self.client
         for _ in range(count):
             for obj, body, mass in zip(self.scene.objects,self.bodies,self.masses):
@@ -160,6 +234,13 @@ class PhysicsWorld:
         self.sync()
 
     def sync(self):
+        """Copy Bullet poses and velocities back into dynamic objects in the simulation
+        scene.
+
+        Returns:
+            None. Updates position, Euler rotation, linear velocity, and angular
+            velocity; static objects are skipped.
+        """
         b, client = self.bullet, self.client
         for obj, body, mass in zip(self.scene.objects,self.bodies,self.masses):
             if not mass:
@@ -171,6 +252,12 @@ class PhysicsWorld:
             obj.velocity, obj.angularVelocity = list(linear), list(angular)
 
     def reset(self):
+        """Clear the solver and contact manifolds, restore initial instance state, and
+        rebuild collision bodies.
+
+        Returns:
+            None. Resets simulated time and all body/mass records.
+        """
         b, client = self.bullet, self.client
         # Recreate contact manifolds as well as poses for repeatable playback.
         b.resetSimulation(physicsClientId=client)
@@ -184,6 +271,11 @@ class PhysicsWorld:
         self._build()
 
     def close(self):
+        """Disconnect this world's Bullet client if still connected.
+
+        Returns:
+            None. Marks the client closed; repeated calls are harmless.
+        """
         if self.client >= 0:
             self.bullet.disconnect(physicsClientId=self.client)
             self.client = -1

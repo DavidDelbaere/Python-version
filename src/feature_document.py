@@ -11,12 +11,25 @@ from temporary_parts import atomic_write
 
 
 def new_feature_document():
+    """Create an empty version-3 part with default identity, material, and state.
+
+    Returns:
+        tuple: Document dictionary and empty FeatureModel.
+    """
     data = new_document()
     data["version"],data["geometry"] = 3,FeatureModel().geometry()
     return data,FeatureModel()
 
 
 def open_feature_document(path):
+    """Load a JSON part, allowing drafts, and migrate older geometry to feature history.
+
+    Args:
+        path (str or Path): Source or destination file path used by this operation.
+
+    Returns:
+        tuple: Document dictionary and built FeatureModel; invalid files raise an error.
+    """
     part = load_part(path,allow_draft=True)
     data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     if part.features is not None:
@@ -39,6 +52,18 @@ def open_feature_document(path):
 
 
 def save_feature_document(path,data,model):
+    """Rebuild the model and atomically save version-3 geometry in a copy of the document.
+    Only geometry and name are checked here; use load_part for full schema validation.
+
+    Args:
+        path (str or Path): Source or destination file path used by this operation.
+        data (dict): Editable part document fields to preserve around serialized
+            geometry.
+        model (FeatureModel): Editable feature history to rebuild and save.
+
+    Returns:
+        dict: Saved document data; the input dictionary is not modified.
+    """
     model.build()
     saved = copy.deepcopy(data)
     saved["format"],saved["version"],saved["geometry"] = ".simuOPart",3,model.geometry()

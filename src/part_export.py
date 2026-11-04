@@ -6,6 +6,18 @@ from temporary_parts import atomic_write
 
 
 def export_sketch(path, sketch, kind):
+    """Build a closed sketch's local prism mesh and atomically export it without modifying
+    the document.
+
+    Args:
+        path (str or Path): Source or destination file path used by this operation.
+        sketch (Sketch): Outline and thickness used by this operation, in metres.
+        kind (str): Output mesh format, obj or stl.
+
+    Returns:
+        None. Writes OBJ or ASCII STL in metres; invalid geometry/format raises
+        ValueError and I/O errors propagate.
+    """
     if kind not in ("obj", "stl"):
         raise ValueError("Choose OBJ or STL for mesh export")
     if not sketch.closed:
@@ -15,6 +27,19 @@ def export_sketch(path, sketch, kind):
 
 
 def export_vertices(path,vertices,kind):
+    """Atomically export local triangle geometry to OBJ or ASCII STL. Editable history,
+    physics, and scene transforms are not included; STL carries no units.
+
+    Args:
+        path (str or Path): Source or destination file path used by this operation.
+        vertices (array-like): Triangle XYZ/normal values reshapeable to
+            (triangle_count, 3, 6), in local metres.
+        kind (str): Output mesh format, obj or stl.
+
+    Returns:
+        None. Writes the destination; an empty mesh, invalid format, or degenerate STL
+        triangle raises ValueError.
+    """
     if kind not in ("obj","stl"):
         raise ValueError("Choose OBJ or STL for mesh export")
     triangles = np.asarray(vertices).reshape(-1,3,6)

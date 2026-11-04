@@ -8,6 +8,19 @@ from resources import resource_path
 
 def resolve_mesh_path(value, project_path):
     # Old Windows scenes contain backslashes and sometimes absolute drive paths.
+    """Resolve a saved mesh reference, recovering legacy Windows paths beside the project
+    or in project/bundled Assets folders.
+
+    Args:
+        value (str): Saved model reference, including relative paths or legacy Windows
+            paths.
+        project_path (str or Path): Scene file whose parent anchors portable asset
+            references.
+
+    Returns:
+        pathlib.Path: Resolved existing model; raises FileNotFoundError if no candidate
+        exists.
+    """
     normalized = value.replace("\\", "/")
     mesh = Path(normalized).expanduser()
     project_dir = Path(project_path).resolve().parent
@@ -32,6 +45,16 @@ def resolve_mesh_path(value, project_path):
 
 
 def stored_mesh_path(mesh_path, project_path):
+    """Express a model path relative to its scene for portable persistence.
+
+    Args:
+        mesh_path (str or Path): Model file to reference from the scene.
+        project_path (str or Path): Scene file whose parent anchors portable asset
+            references.
+
+    Returns:
+        str: POSIX-style relative path, or an absolute path when Windows drives differ.
+    """
     mesh = Path(mesh_path).resolve()
     try:
         return Path(os.path.relpath(mesh, Path(project_path).resolve().parent)).as_posix()

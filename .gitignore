@@ -10,3 +10,4 @@ src/dist/
 src/main
 *.egg-info/
 .DS_Store
+*.pyc

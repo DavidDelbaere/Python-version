@@ -6,7 +6,16 @@ import tempfile
 
 
 def atomic_write(path, contents):
-    """Replace a file only after its complete contents have been written."""
+    """Write bytes to a sibling staging file, flush them, and atomically replace the
+    destination. Clean up staging on failure; the parent directory must exist.
+
+    Args:
+        path (str or Path): Source or destination file path used by this operation.
+        contents (bytes): Complete payload to write before replacing the destination.
+
+    Returns:
+        None. Replaces one file; filesystem errors propagate.
+    """
     path = Path(path)
     staging = None
     try:
@@ -25,14 +34,35 @@ def atomic_write(path, contents):
 
 class TemporaryParts:
     def __init__(self):
+        """Initialize an empty temporary-part registry without allocating a directory yet.
+
+        Returns:
+            None.
+        """
         self._directory = None
         self.sources = {}
 
     @property
     def directory(self):
+        """Expose the allocated temporary directory, if any.
+
+        Returns:
+            pathlib.Path or None: Directory path, or None before allocation or after
+            cleanup.
+        """
         return Path(self._directory.name) if self._directory else None
 
     def create(self, source):
+        """Copy source bytes into a uniquely named temporary .simuOPart and register its
+        origin. Does not validate or convert the copied geometry.
+
+        Args:
+            source (str or Path): Original OBJ file whose bytes are copied without
+                conversion or validation.
+
+        Returns:
+            pathlib.Path: Temporary copy; filesystem errors propagate.
+        """
         source = Path(source).resolve()
         # Snapshot the OBJ so moving/deleting the original cannot break the
         # imported part. The caller validates it before adding it to the scene.
@@ -49,15 +79,36 @@ class TemporaryParts:
         return destination
 
     def contains(self, path):
+        """Check whether a resolved path is registered as a temporary part.
+
+        Args:
+            path (str or Path, optional): Candidate temporary copy; None returns False.
+
+        Returns:
+            bool: True for a managed copy; False for None or an unregistered path.
+        """
         return path is not None and Path(path).resolve() in self.sources
 
     def release(self, path):
+        """Delete and unregister a managed copy, leaving its source untouched.
+
+        Args:
+            path (str or Path): Managed temporary copy to delete and unregister.
+
+        Returns:
+            None. Unregistered paths are ignored; filesystem errors propagate.
+        """
         path = Path(path).resolve()
         if path in self.sources:
             path.unlink(missing_ok=True)
             del self.sources[path]
 
     def cleanup(self):
+        """Remove the temporary directory and clear all registered copies.
+
+        Returns:
+            None. Resets directory ownership and the source mapping.
+        """
         if self._directory:
             self._directory.cleanup()
         self._directory = None
