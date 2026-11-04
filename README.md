@@ -77,6 +77,19 @@ You can also run `.venv/bin/python src/main.py` directly. On Linux, the applicat
 
 If Qt reports that it cannot load `xcb`, check the system packages above. `QT_DEBUG_PLUGINS=1 ./Testing/Tools/run.sh --new` prints plugin diagnostics. For driver troubleshooting, `LIBGL_ALWAYS_SOFTWARE=1 ./Testing/Tools/run.sh --new` requests Mesa software rendering.
 
+## MacOS setup
+
+Run these commands from command prompt to build:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m PyInstaller --noconfirm src/main.spec
+```
+
+This produces a native executable, but the current configuration will not create a macOS .app bundle. 
+
+
 ## Models and projects
 
 The Part Editor now opens in **3D** with a feature tree containing **Front**, **Right**, and **Top** planes. Select a plane (or a flat model face), choose **New Sketch**, draw/dimension an outline, then **Finish Sketch → Extrude**. You can also select a flat face and **Extrude** it directly. Orbit by dragging, pan with the middle mouse button, and zoom with the wheel. Try `Assets/feature_demo.simuOPart`. See [feature editor guide](Documentation/Frontend/feature_editor.md) for the current workflow and editable feature-file format.
