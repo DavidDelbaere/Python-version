@@ -66,12 +66,18 @@ class ToolInput(unittest.TestCase):
         self.mouse(QEvent.Type.MouseMove, start + [50, 10])
         return start
 
-    def test_vertical_camera_keys_and_focus_cleanup_in_both_viewports(self):
+    def test_vertical_camera_keys_and_focus_cleanup_in_all_viewports(self):
         from simuo.ui.structural_viewport import StructuralViewport
         structural = StructuralViewport()
         self.addCleanup(structural.close)
         structural.navigation.stop()
-        for view, move in ((self.viewport, lambda: self.viewport.update_camera(.1)), (structural, structural.navigate)):
+        from simuo.physics.viewport.renderer import OpenGLViewport as PlaybackViewport
+        playback = PlaybackViewport(scene=self.scene, read_only=True)
+        playback.timer.stop()
+        self.addCleanup(playback.close)
+        for view, move in ((self.viewport, lambda: self.viewport.update_camera(.1)),
+                           (structural, lambda: structural.navigate(.1)),
+                           (playback, lambda: playback.update_camera(.1))):
             with self.subTest(view=type(view).__name__), patch.object(view, "hasFocus", return_value=True):
                 before = glm.vec3(view.camera.position)
                 QApplication.sendEvent(view, QKeyEvent(QEvent.KeyPress, Qt.Key_Space, Qt.NoModifier))

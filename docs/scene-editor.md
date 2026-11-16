@@ -1,10 +1,15 @@
 # Controls and editor panels
 
+Scene, Structural and Physics Render share the same `Camera` and
+`CameraController`. WASD movement, Space/Alt vertical movement, Left/Right
+turning and mouse sensitivity are defined centrally. Movement uses elapsed time;
+Structural uses a smaller speed because its rendered coordinates are normalized.
+
 ## Viewport and editing
 
 - `W`, `A`, `S`, and `D` move the camera relative to its viewing direction.
 - `Space` moves the camera up and `Alt` moves it down while the viewport has focus, without right-click. Left/Right turn the camera.
-- `C` moves the camera down. Command/Control/Alt shortcuts stop camera movement
+- Command/Control shortcuts stop camera movement
   and never start it. Press a movement key again to resume after a shortcut.
 - Hold the right mouse button and move the mouse to look around.
 - Left-click a mesh in the viewport to select it. A thin blue outline marks the

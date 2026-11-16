@@ -7,6 +7,7 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QWidget
 import glm
 from simuo.rendering.camera import Camera
+from simuo.rendering.camera_controller import CameraController
 
 from simuo.structural.postprocessing import gradient_texture
 
@@ -61,14 +62,13 @@ class StructuralViewport(QOpenGLWidget):
         super().__init__(parent)
         self.setMinimumSize(400, 320)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        from simuo.ui.camera_keys import VerticalNavigationFilter
-        self.vertical_navigation = VerticalNavigationFilter(self)
         self.setMouseTracking(True)
         self.camera = Camera()
         self.camera.near_plane = .01
         self.camera.far_plane = 100.
         self.tool = "select"
-        self.keys = set()
+        self.camera_controller = CameraController(self, move_speed=.035/.016)
+        self.keys = self.camera_controller.keys
         self.right_mouse = False
         self.point_loads = ()
         self.point_supports = ()
@@ -82,6 +82,8 @@ class StructuralViewport(QOpenGLWidget):
         self.draft_point = self.hover_point = None
         self.preview_force = (0., 0., 0.)
         self.tool_rail = self.tool_context = None
+        self.navigation_clock = QElapsedTimer()
+        self.navigation_clock.start()
         self.navigation = QTimer(self)
         self.navigation.timeout.connect(self.navigate)
         self.navigation.start(16)
@@ -155,10 +157,7 @@ class StructuralViewport(QOpenGLWidget):
 
     def frame_all(self):
         self.camera.position = glm.vec3(2.2, 1.5, 3.)
-        direction = glm.normalize(-self.camera.position)
-        self.camera.yaw = math.degrees(math.atan2(direction.z, direction.x))
-        self.camera.pitch = math.degrees(math.asin(direction.y))
-        self.camera.update_vectors()
+        self.camera.look_at((0., 0., 0.))
         self.update()
 
     def normalized(self, points):
@@ -195,17 +194,13 @@ class StructuralViewport(QOpenGLWidget):
         super().resizeEvent(event)
         self.layout_tools()
 
-    def navigate(self):
-        if not self.keys or not self.hasFocus():
+    def navigate(self, delta_time=None):
+        seconds = self.navigation_clock.nsecsElapsed()/1e9 if delta_time is None else delta_time
+        self.navigation_clock.restart()
+        if not self.hasFocus():
             return
-        delta = glm.vec3(0.)
-        for key, vector in ((Qt.Key.Key_W, self.camera.front), (Qt.Key.Key_S, -self.camera.front),
-                            (Qt.Key.Key_D, self.camera.right), (Qt.Key.Key_A, -self.camera.right),
-                            (Qt.Key.Key_Space, self.camera.world_up), (Qt.Key.Key_Alt, -self.camera.world_up)):
-            if key in self.keys:
-                delta += vector
-        self.camera.position += delta*.035
-        self.update()
+        if self.camera_controller.advance(seconds):
+            self.update()
 
     def upload(self):
         import ctypes
@@ -427,7 +422,7 @@ class StructuralViewport(QOpenGLWidget):
     def mouseMoveEvent(self, event):
         if self.right_mouse and self.last_mouse is not None:
             delta = event.position()-self.last_mouse
-            self.camera.rotate(delta.x(), -delta.y(), .25)
+            self.camera_controller.look(delta.x(), -delta.y())
             self.last_mouse = event.position()
             self.update()
         elif self.tool in ("point", "fixed_point"):
@@ -471,28 +466,25 @@ class StructuralViewport(QOpenGLWidget):
             self.patch_clicked.emit(patch, bool(event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)))
 
     def wheelEvent(self, event):
-        self.camera.position += self.camera.front*(event.angleDelta().y()/120)*.15
+        self.camera_controller.dolly(event.angleDelta().y()/120)
         self.update()
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Control, Qt.Key.Key_Meta, Qt.Key.Key_AltGr) or event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
-            self.keys.clear()
-            event.ignore()
-        elif event.key() == Qt.Key.Key_Escape:
+        if self.camera_controller.key_press(event):
+            return
+        if event.key() == Qt.Key.Key_Escape:
             self.placement_cancelled.emit()
         elif event.key() == Qt.Key.Key_F:
             if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                 self.frame_all()
             else:
                 self.frame_requested.emit()
-        elif event.key() in (Qt.Key.Key_W, Qt.Key.Key_A, Qt.Key.Key_S, Qt.Key.Key_D, Qt.Key.Key_Space, Qt.Key.Key_Alt):
-            self.keys.add(event.key())
         else:
             super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
-        if not event.isAutoRepeat():
-            self.keys.discard(event.key())
+        if not self.camera_controller.key_release(event):
+            super().keyReleaseEvent(event)
 
     def focusOutEvent(self, event):
         self.keys.clear()

@@ -109,12 +109,12 @@ def main():
                 app.processEvents()
                 position = np.array(viewport.camera.position)
                 QTest.keyPress(viewport, Qt.Key_Space)
-                viewport.navigate()
+                viewport.navigate(.1)
                 QTest.keyRelease(viewport, Qt.Key_Space)
                 assert viewport.camera.position.y > position[1]
                 position = np.array(viewport.camera.position)
                 QTest.keyPress(viewport, Qt.Key_Alt)
-                viewport.navigate()
+                viewport.navigate(.1)
                 QTest.keyRelease(viewport, Qt.Key_Alt)
                 assert viewport.camera.position.y < position[1]
                 assert not viewport.keys and viewport.hasFocus(), "Alt left camera moving or activated the menu"
