@@ -117,7 +117,7 @@ class StructuralInputTests(unittest.TestCase):
         save_analysis(path, setup)
         data = json.loads(path.read_text())
         self.assertEqual(data["version"], 2)
-        self.assertEqual(data["setup"]["setup_version"], 2)
+        self.assertEqual(data["setup"]["setup_version"], 3)
         self.assertEqual(load_analysis(path), setup)
         data["setup"].pop("setup_version")
         data["setup"].pop("support_conditions")
@@ -146,7 +146,7 @@ class StructuralInputTests(unittest.TestCase):
                 MeshSettings(value)
         with self.assertRaises(ValueError):
             SurfaceLoad((1, 1))
-        np.testing.assert_array_equal(gradient_texture()[[0, 128, 256]], [[0, 255, 0], [255, 255, 0], [255, 0, 0]])
+        np.testing.assert_array_equal(gradient_texture(256)[[0, 85, 170, 255]], [[0, 0, 255], [0, 255, 0], [255, 255, 0], [255, 0, 0]])
         np.testing.assert_array_equal(normalized_field(np.zeros(3))[0], [0, 0, 0])
         np.testing.assert_array_equal(normalized_field(np.ones(3)*5)[0], [1, 1, 1])
         self.assertEqual(normalized_field([0, 5, 10])[1], 10)

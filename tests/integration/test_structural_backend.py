@@ -11,7 +11,7 @@ from simuo.structural.geometry import load_geometry
 from simuo.structural.models import *
 from simuo.structural.meshing import generate_mesh, validate_mesh
 from simuo.structural.solver import solve_analysis, make_basis
-from simuo.structural.postprocessing import recover_stress
+from simuo.structural.postprocessing import recover_stress, deformed_points
 
 
 class StructuralBackendTests(unittest.TestCase):
@@ -93,6 +93,14 @@ class StructuralBackendTests(unittest.TestCase):
             errors.append(abs(result.displacement[:, 1].min()/expected-1))
         self.assertLess(errors[-1], .05)
         self.assertLess(errors[-1], errors[0])
+        displayed, scale, peak = deformed_points(mesh.points, result.displacement, "true")
+        self.assertEqual(scale, 1.)
+        tip = np.isclose(mesh.points[:, 0], .5)
+        actual_tip_bend = (displayed-mesh.points)[tip, 1].mean()
+        self.assertLess(abs(actual_tip_bend/expected-1), .05)
+        self.assertGreater(peak, 0.)
+        fixed = np.isclose(mesh.points[:, 0], -.5)
+        np.testing.assert_allclose(displayed[fixed], mesh.points[fixed], atol=1e-14)
         self.assertEqual(result.beam_stations.shape, (99,))
         expected_moment = -1000*(1-result.beam_stations)
         np.testing.assert_allclose(result.beam_moments[9:90, 1], expected_moment[9:90], rtol=.05)

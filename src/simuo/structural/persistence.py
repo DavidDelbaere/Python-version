@@ -6,14 +6,14 @@ from pathlib import Path
 import tempfile
 
 from .geometry import fingerprint
-from .models import AnalysisSetup, Material, MeshSettings, SurfaceLoad, BeamConfiguration, PointLoad, SupportCondition
+from .models import AnalysisSetup, Material, MeshSettings, SurfaceLoad, BeamConfiguration, PointLoad, SupportCondition, AreaLoad
 from simuo.project.project_format import read_project, project_data
 
 
 def save_analysis(path, setup):
     path = Path(path).resolve()
     data = asdict(setup)
-    data["setup_version"] = 2
+    data["setup_version"] = 3
     try:
         data["geometry_path"] = Path(os.path.relpath(setup.geometry_path, path.parent)).as_posix()
     except ValueError:  # Windows geometry on another drive
@@ -43,13 +43,14 @@ def load_analysis(path, verify_geometry=True):
         data = document.data
         d = dict(data["setup"])
         version = d.pop("setup_version", 1)
-        if type(version) is not int or version not in (1, 2):
+        if type(version) is not int or version not in (1, 2, 3):
             raise ValueError("Unsupported structural setup version")
         d["geometry_path"] = str((path.parent / d["geometry_path"].replace("\\", "/")).resolve())
         d["material"] = Material(**d["material"])
         d["mesh"] = MeshSettings(**d["mesh"])
         d["loads"] = tuple(SurfaceLoad(**item) for item in d["loads"])
         d["point_loads"] = tuple(PointLoad(**item) for item in d.get("point_loads", ()))
+        d["area_loads"] = tuple(AreaLoad(**item) for item in d.get("area_loads", ()))
         d["support_conditions"] = tuple(SupportCondition(**item) for item in d.get("support_conditions", ()))
         d["beam"] = BeamConfiguration(**d["beam"]) if d["beam"] else None
         setup = AnalysisSetup(**d)

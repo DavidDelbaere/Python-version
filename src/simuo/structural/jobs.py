@@ -18,6 +18,9 @@ def _worker(connection, operation, arguments):
         elif operation == "solve":
             from .solver import solve_analysis
             value = solve_analysis(*arguments, progress=progress)
+        elif operation == "preview":
+            from .load_preview import prepare_preview
+            value = prepare_preview(*arguments, progress=progress)
         else:
             raise ValueError("Unknown analysis operation")
         connection.send(("result", value))

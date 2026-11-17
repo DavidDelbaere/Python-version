@@ -7,7 +7,7 @@ import numpy as np
 
 from simuo.resources.paths import resource_path
 from .jobs import BackgroundJob
-from .models import AnalysisSetup, Material, MeshSettings, SurfaceLoad, PointLoad, SupportCondition
+from .models import AnalysisSetup, Material, MeshSettings, SurfaceLoad, PointLoad, SupportCondition, AreaLoad
 from .persistence import save_analysis, load_analysis
 from simuo.project.project_format import read_project
 from dataclasses import replace
@@ -65,7 +65,16 @@ def run_smoke():
             raise RuntimeError("Packaged point force benchmark failed")
         if np.linalg.norm(point_result.support_reactions[pin.identifier]["moment"]) > 1e-8:
             raise RuntimeError("Packaged face pin moment benchmark failed")
-        print("Structural smoke passed: real Gmsh, spawned P2 solver, axial benchmark, exact point force, freely rotating face pin and typed .simuO roundtrip")
+        area = AreaLoad(ends[1], point.source_triangle, point.barycentric, .01, value=(0., -100., 0.))
+        area_setup = replace(setup, loads=(), area_loads=(area,), material=replace(setup.material, yield_strength=240e6, ultimate_tensile_strength=260e6))
+        save_analysis(project, area_setup)
+        if load_analysis(project) != area_setup:
+            raise RuntimeError("Packaged area and strength snapshot roundtrip failed")
+        job.start("solve", mesh, load_analysis(project))
+        area_result = wait_for_job(job)
+        if not np.allclose(area_result.applied_force, area.value, atol=1e-8):
+            raise RuntimeError("Packaged finite area force benchmark failed")
+        print("Structural smoke passed: real Gmsh, spawned P2 solver, axial benchmark, exact point force, finite Area force, freely rotating face pin and .simuO strength snapshots")
     return 0
 
 

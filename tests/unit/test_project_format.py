@@ -49,6 +49,18 @@ class ProjectFormatTests(unittest.TestCase):
         self.assertEqual(document.data["format"], ".simuO")
         self.assertEqual(document.data["version"], 2)
         self.assertEqual(load_analysis(self.path), setup)
+        for version in (1, 2):
+            old = json.loads(self.path.read_text())
+            old["setup"]["setup_version"] = version
+            old["setup"].pop("area_loads")
+            old["setup"]["material"].pop("yield_strength")
+            old["setup"]["material"].pop("ultimate_tensile_strength")
+            legacy_path = self.directory/f"old-setup-{version}.simuO"
+            legacy_path.write_text(json.dumps(old))
+            restored = load_analysis(legacy_path)
+            self.assertEqual(restored.area_loads, ())
+            self.assertIsNone(restored.material.yield_strength)
+            self.assertIsNone(restored.material.ultimate_tensile_strength)
         legacy = document.data
         legacy.pop("project_type")
         legacy["format"], legacy["version"] = ".simuOAnalysis", 1

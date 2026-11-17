@@ -57,6 +57,10 @@ def solve_analysis(mesh, setup, progress=lambda text: None):
         if node is None or not 0 <= node < len(mesh.points):
             raise ValueError("Point load is missing its mesh node")
         force[basis.nodal_dofs[:, node]] += np.asarray(load.force)
+    if setup.area_loads:
+        from .load_regions import assemble_area_force
+        for load in setup.area_loads:
+            force += assemble_area_force(basis, mesh, load)
     if any(setup.gravity):
         acceleration = setup.material.density*np.asarray(setup.gravity)
         @LinearForm

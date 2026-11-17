@@ -36,15 +36,65 @@ def recover_stress(basis, solution, material):
     return stress, vm, averaged, display
 
 
-def normalized_field(values):
+def normalized_field(values, maximum=None):
     values = np.asarray(values, dtype=np.float64)
     if not np.isfinite(values).all() or np.any(values < 0):
         raise ValueError("Stress display needs finite nonnegative values")
-    maximum = float(values.max()) if values.size else 0.
-    return values/maximum if maximum > 0 else np.zeros_like(values), maximum
+    if maximum is None:
+        maximum = float(values.max()) if values.size else 0.
+    elif isinstance(maximum, bool) or not np.isfinite(maximum) or maximum <= 0:
+        raise ValueError("Stress maximum must be finite and positive")
+    return np.clip(values/maximum, 0, 1) if maximum > 0 else np.zeros_like(values), maximum
+
+
+STRESS_COLORS = ((0., (0., 0., 1.)), (1/3, (0., 1., 0.)),
+                 (2/3, (1., 1., 0.)), (1., (1., 0., 0.)))
+
+
+def stress_scale(values, mode="yield", material=None, custom_maximum=None):
+    """Resolve the actual maximum and its visible meaning, including fallbacks."""
+    if mode in ("yield", "uts"):
+        attribute, name = (("yield_strength", "Material yield") if mode == "yield" else
+                           ("ultimate_tensile_strength", "Material UTS (reference)"))
+        maximum = getattr(material, attribute, None)
+        if maximum is not None:
+            return float(maximum), name
+        return normalized_field(values)[1], f"Automatic range — {name.lower()} not supplied"
+    if mode == "custom":
+        return normalized_field(values, custom_maximum)[1], "Custom maximum"
+    if mode == "auto":
+        return normalized_field(values)[1], "Automatic range"
+    raise ValueError("Unknown stress scale")
 
 
 def gradient_texture(size=257):
-    """Linear green → yellow → red lookup; includes the exact midpoint."""
+    """Shared blue → green → yellow → red lookup."""
     x = np.linspace(0, 1, size)
-    return np.round(255*np.column_stack((np.minimum(2*x, 1), np.minimum(2*(1-x), 1), np.zeros(size)))).astype(np.uint8)
+    positions, colors = zip(*STRESS_COLORS)
+    return np.round(255*np.column_stack([np.interp(x, positions, channel) for channel in np.asarray(colors).T])).astype(np.uint8)
+
+
+def deformed_points(points, displacement, mode="auto", custom_scale=1.):
+    """Return display-only coordinates, magnification and actual peak displacement."""
+    points = np.asarray(points, dtype=np.float64)
+    displacement = np.asarray(displacement, dtype=np.float64)
+    if (points.ndim != 2 or points.shape[1] != 3 or displacement.shape != points.shape or
+            not np.isfinite(points).all() or not np.isfinite(displacement).all()):
+        raise ValueError("Deformation preview needs matching finite XYZ positions and displacements")
+    peak = float(np.hypot.reduce(displacement, axis=1).max()) if len(points) else 0.
+    if mode == "auto":
+        diagonal = float(np.hypot.reduce(np.ptp(points, axis=0))) if len(points) else 0.
+        scale = max(1., .1*diagonal/peak) if peak > 0 else 1.
+    elif mode == "true":
+        scale = 1.
+    elif mode == "custom":
+        if isinstance(custom_scale, bool) or not np.isfinite(custom_scale) or custom_scale <= 0:
+            raise ValueError("Deformation magnification must be finite and positive")
+        scale = float(custom_scale)
+    else:
+        raise ValueError("Unknown deformation magnification mode")
+    with np.errstate(over="ignore", invalid="ignore"):
+        displayed = points+scale*displacement
+    if not np.isfinite(scale) or not np.isfinite(displayed).all():
+        raise ValueError("Deformation magnification is too large to display")
+    return displayed, scale, peak

@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 import math
 from uuid import uuid4
 import numpy as np
+from simuo.materials import validate_strengths
 
 
 def finite(value, label):
@@ -25,6 +26,8 @@ class Material:
     density: float | None = None
     name: str = "Custom"
     preset_id: str | None = None
+    yield_strength: float | None = None
+    ultimate_tensile_strength: float | None = None
 
     def __post_init__(self):
         if not isinstance(self.name, str) or not self.name.strip() or (self.preset_id is not None and not isinstance(self.preset_id, str)):
@@ -35,6 +38,7 @@ class Material:
             raise ValueError("Poisson ratio must be strictly between -1 and 0.5")
         if self.density is not None and finite(self.density, "Density") <= 0:
             raise ValueError("Density must be positive (kg/m³)")
+        validate_strengths(self.yield_strength, self.ultimate_tensile_strength)
 
     @property
     def lame(self):
@@ -95,6 +99,29 @@ class PointLoad:
             raise ValueError("Invalid point load identity")
         object.__setattr__(self, "barycentric", bary)
         object.__setattr__(self, "force", force)
+
+
+@dataclass(frozen=True)
+class AreaLoad:
+    triangles: tuple[int, ...]
+    source_triangle: int
+    barycentric: tuple[float, float, float]
+    radius: float
+    kind: str = "force"
+    value: tuple[float, ...] = (0., 0., 0.)
+    identifier: str = field(default_factory=lambda: uuid4().hex)
+    name: str = "Area Force"
+
+    def __post_init__(self):
+        surface = SurfaceLoad(self.triangles, self.kind, self.value, self.identifier, self.name)
+        anchor = PointLoad(self.source_triangle, self.barycentric, (0., 0., 0.))
+        if self.source_triangle not in surface.triangles:
+            raise ValueError("Area center must belong to its selected face")
+        if finite(self.radius, "Area radius") <= 0:
+            raise ValueError("Area radius must be positive (m)")
+        object.__setattr__(self, "triangles", surface.triangles)
+        object.__setattr__(self, "barycentric", anchor.barycentric)
+        object.__setattr__(self, "value", surface.value)
 
 
 def point_load_key(loads):
@@ -165,6 +192,7 @@ class AnalysisSetup:
     point_loads: tuple[PointLoad, ...] = ()
     support_names: tuple[str, ...] = ()
     support_conditions: tuple[SupportCondition, ...] = ()
+    area_loads: tuple[AreaLoad, ...] = ()
 
     def __post_init__(self):
         if not isinstance(self.geometry_path, str) or not self.geometry_path:
@@ -180,13 +208,16 @@ class AnalysisSetup:
         if any(not isinstance(v, SurfaceLoad) for v in self.loads):
             raise ValueError("Invalid surface load")
         object.__setattr__(self, "point_loads", tuple(self.point_loads))
+        object.__setattr__(self, "area_loads", tuple(self.area_loads))
         object.__setattr__(self, "support_names", tuple(self.support_names))
         object.__setattr__(self, "support_conditions", tuple(self.support_conditions))
         if any(not isinstance(s, SupportCondition) for s in self.support_conditions):
             raise ValueError("Invalid support condition")
         if any(not isinstance(v, PointLoad) for v in self.point_loads):
             raise ValueError("Invalid point load")
-        ids = [v.identifier for v in (*self.loads, *self.point_loads, *self.support_conditions)]
+        if any(not isinstance(v, AreaLoad) for v in self.area_loads):
+            raise ValueError("Invalid area load")
+        ids = [v.identifier for v in (*self.loads, *self.point_loads, *self.area_loads, *self.support_conditions)]
         if len(ids) != len(set(ids)):
             raise ValueError("Condition identifiers must be unique")
         if self.support_names and (len(self.support_names) != len(self.supports) or any(not isinstance(v, str) for v in self.support_names)):

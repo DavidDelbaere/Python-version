@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from tests import ROOT
 from simuo.project.project_paths import resolve_mesh_path, stored_mesh_path
+from simuo.project.project_format import read_project
 from simuo.resources.paths import resource_path
 from simuo.project.temporary_parts import atomic_write
 
@@ -76,8 +77,10 @@ class PortabilityTests(unittest.TestCase):
         projects += list((ROOT / "tests/fixtures").glob("*.simuO"))
         self.assertTrue(projects)
         for project in projects:
-            for item in json.loads(project.read_text(encoding="utf-8"))["objects"]:
-                reference = item["meshPath"]
+            document = read_project(project)
+            references = ((document.data["setup"]["geometry_path"],) if document.project_type == "structural"
+                          else tuple(item["meshPath"] for item in document.data["objects"]))
+            for reference in references:
                 with self.subTest(project=project.name, reference=reference):
                     self.assertFalse(Path(reference).is_absolute())
                     target = (project.parent / reference).resolve()

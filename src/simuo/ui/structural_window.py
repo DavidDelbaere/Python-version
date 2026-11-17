@@ -6,13 +6,14 @@ import numpy as np
 from PySide6.QtCore import Qt, QTimer, QSettings, QSignalBlocker
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QFormLayout, QPushButton, QLabel, QLineEdit, QComboBox, QListWidget, QTreeWidget,
-    QTreeWidgetItem, QAbstractItemView, QFileDialog, QMessageBox, QDoubleSpinBox,
+    QFormLayout, QPushButton, QLabel, QLineEdit, QComboBox, QTreeWidget,
+    QTreeWidgetItem, QFileDialog, QMessageBox, QDoubleSpinBox,
     QCheckBox, QFrame, QSizePolicy, QAbstractSpinBox, QStackedWidget, QScrollArea, QTabWidget, QProgressBar, QMenu, QToolButton)
 
 from simuo.materials import MaterialDefinition
 from simuo.structural.models import (AnalysisSetup, Material, MeshSettings, SurfaceLoad,
-    PointLoad, SupportCondition, BeamConfiguration, all_supports, point_targets)
+    PointLoad, AreaLoad, SupportCondition, BeamConfiguration, all_supports, point_targets)
+from simuo.structural.load_regions import area_region, surface_region
 from simuo.structural.jobs import BackgroundJob
 from simuo.structural.persistence import load_analysis, save_analysis
 from simuo.structural.meshing import point_position, bind_point_targets
@@ -21,6 +22,7 @@ from simuo.editor.structural_state import StructuralState, StructuralInputs
 from simuo.project.project_format import read_project, PROJECT_FILTER
 from simuo.ui.structural_viewport import StructuralViewport, BeamDiagram
 from simuo.ui.material_inspector import MaterialInspector
+from simuo.ui.load_preview import LoadPreviewPanel
 from simuo.ui.panels.properties import InspectorSection, TransformSpinBox, numeric_frame
 from simuo.ui.docking import PanelManager, PanelSpec
 from simuo.ui.theme import load_stylesheet
@@ -45,6 +47,11 @@ class StructuralWindow(QMainWindow):
         self._selection = ("solid", "")
         self._editing_load = None
         self._draft_anchor = None
+        self._draft_faces = ()
+        self._load_draft = False
+        self._load_value_required = False
+        self._last_force_mode = self._shown_mode = "area"
+        self._last_force_input = "force"
         self._renaming_support = None
         self._repositioning = False
         self._readiness_cache = None
@@ -68,6 +75,10 @@ class StructuralWindow(QMainWindow):
     def loads(self): return list(self.state.inputs.loads)
     @property
     def point_loads(self): return list(self.state.inputs.point_loads)
+    @property
+    def area_loads(self): return list(self.state.inputs.area_loads)
+    @property
+    def all_loads(self): return (*self.loads, *self.point_loads, *self.area_loads)
     @property
     def beam_clamp(self): return self.state.inputs.beam_clamp
     @property
@@ -102,6 +113,10 @@ class StructuralWindow(QMainWindow):
         view = self.menuBar().addMenu("View")
         self._action(view, "Frame Selected", self.frame_selected, "F")
         self._action(view, "Frame All", lambda: self.viewport.frame_all(), "Shift+F")
+        self.deformation_action = view.addAction("Deformed shape")
+        self.deformation_action.setCheckable(True)
+        self.deformation_action.setEnabled(False)
+        self.deformation_action.toggled.connect(self.deformation_toggled)
         self.tools_visible = view.addAction("Viewport Tools")
         self.tools_visible.setCheckable(True)
         self.tools_visible.setChecked(True)
@@ -109,6 +124,7 @@ class StructuralWindow(QMainWindow):
         self.generate_action = self._action(analysis, "Generate Mesh", self.generate_mesh)
         self.generate_action.setToolTip("Generate the tetrahedral mesh without running analysis")
         self.solve_action = self._action(analysis, "Run Analysis", self.solve, "Ctrl+R")
+        self.load_preview_action = self._action(analysis, "Load Preview…", lambda: self.select_item("results"))
         self._action(analysis, "Cancel", self.cancel)
         help_menu = self.menuBar().addMenu("Help")
         self._action(help_menu, "Controls", lambda: QMessageBox.information(self, "Structural controls",
@@ -119,11 +135,11 @@ class StructuralWindow(QMainWindow):
         self.setCentralWidget(self.viewport)
         self.viewport.patch_clicked.connect(self.select_patch)
         self.viewport.point_picked.connect(self.point_picked)
-        self.viewport.load_picked.connect(lambda key: self.select_item("point", key))
+        self.viewport.load_picked.connect(self.select_load)
         self.viewport.support_picked.connect(lambda key: self.select_item("support", key))
         self.viewport.placement_cancelled.connect(self.cancel_placement)
         self.viewport.frame_requested.connect(self.frame_selected)
-        self.create_viewport_tools()
+        self.viewport.deformation_changed.connect(self.deformation_action.setChecked)
         self.hierarchy_panel = QWidget()
         self.hierarchy_panel.setObjectName("editorPanel")
         hierarchy_layout = QVBoxLayout(self.hierarchy_panel)
@@ -135,15 +151,6 @@ class StructuralWindow(QMainWindow):
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.tree_menu)
         hierarchy_layout.addWidget(self.tree, 1)
-        selection_section = self.selection_section = InspectorSection("Surface Selection")
-        selection_section.toggle.setChecked(False)
-        sl = QVBoxLayout(selection_section.body)
-        self.patch_list = QListWidget()
-        self.patch_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.patch_list.setMaximumHeight(155)
-        self.patch_list.itemSelectionChanged.connect(self.selection_changed)
-        sl.addWidget(self.patch_list)
-        hierarchy_layout.addWidget(selection_section)
         self.properties = QStackedWidget()
         self.properties.setObjectName("editorPanel")
         self.properties.setStyleSheet(load_stylesheet("properties"))
@@ -203,10 +210,26 @@ class StructuralWindow(QMainWindow):
         _, load = self.make_page("loads", "Load")
         self.load_kind = QComboBox()
         self.load_kind.setObjectName("inspectorCombo")
-        for text, key in (("Force at a point", "point"), ("Force over a face", "force"), ("Pressure on a face", "pressure")):
+        self.load_kind.setAccessibleName("Force application")
+        for text, key in (("Point", "point"), ("Area", "area"), ("Face", "force")):
             self.load_kind.addItem(text, key)
         self.load_kind.currentIndexChanged.connect(self.load_kind_changed)
-        load.addRow("Type", self.load_kind)
+        self.load_kind.setCurrentIndex(self.load_kind.findData("area"))
+        load.addRow("Application", self.load_kind)
+        self.load_input = QComboBox()
+        self.load_input.setObjectName("inspectorCombo")
+        self.load_input.setAccessibleName("Force input")
+        self.load_input.addItem("Total force", "force")
+        self.load_input.addItem("Pressure", "pressure")
+        self.load_input.currentIndexChanged.connect(self.load_input_changed)
+        load.addRow("Input", self.load_input)
+        self.area_radius = self.numeric("Area radius", minimum=1e-9)
+        self.area_radius.setDecimals(9)
+        self.area_radius.setValue(.01)
+        self.area_radius.valueChanged.connect(self.update_load_preview)
+        self.area_radius.editingFinished.connect(self.commit_load)
+        self.radius_label = QLabel("Radius (m)")
+        load.addRow(self.radius_label, self.area_radius)
         self.load_name = QLineEdit()
         self.load_name.setPlaceholderText("Load name")
         load.addRow("Name", self.load_name)
@@ -228,6 +251,7 @@ class StructuralWindow(QMainWindow):
         for unit, scale in (("Pa", 1.), ("kPa", 1000.), ("MPa", 1e6)):
             self.pressure_units.addItem(unit, scale)
         self.pressure_units.setCurrentIndex(1)
+        self._pressure_unit_scale = self.pressure_units.currentData()
         self.pressure_units.currentIndexChanged.connect(self.pressure_unit_changed)
         pr.addWidget(self.pressure, 1)
         pr.addWidget(self.pressure_units)
@@ -243,6 +267,10 @@ class StructuralWindow(QMainWindow):
         self.load_hint.setWordWrap(True)
         load.addRow(self.load_hint)
         self.place_button = self.button(load, "Place Point…", self.begin_point_placement)
+        self.save_load_button = self.button(load, "Apply", self.apply_load_draft)
+        self.cancel_load_button = self.button(load, "Cancel", self.cancel_placement)
+        self.save_load_button.hide()
+        self.cancel_load_button.hide()
         self.apply_load_button = self.button(load, "Duplicate Load", self.duplicate_load)
         self.button(load, "Delete Load", self.remove_selected)
         _, mesh = self.make_page("mesh", "Mesh")
@@ -256,22 +284,50 @@ class StructuralWindow(QMainWindow):
         self.readiness = QLabel()
         self.readiness.setWordWrap(True)
         mesh.addRow(self.readiness)
-        _, beam = self.make_page("results", "Beam Diagram")
+        _, beam = self.make_page("results", "Results")
         self.beam_label = QLabel()
         self.beam_label.setWordWrap(True)
         beam.addRow(self.beam_label)
         self.button(beam, "Use Selected Faces as Clamp End", lambda: self.set_beam_end(True))
         self.button(beam, "Use Selected Faces as Free End", lambda: self.set_beam_end(False))
         self.button(beam, "Clear Beam Configuration", self.clear_beam)
+        self.load_preview_panel = LoadPreviewPanel(self)
+        beam.addRow(self.load_preview_panel)
+        self.deformed_shape = QCheckBox("Deformed shape")
+        self.deformed_shape.toggled.connect(self.deformation_action.setChecked)
+        beam.addRow(self.deformed_shape)
+        self.deformation_mode = QComboBox()
+        self.deformation_mode.setObjectName("inspectorCombo")
+        self.deformation_mode.setAccessibleName("Deformation magnification mode")
+        for label, key in (("Auto", "auto"), ("True scale (1×)", "true"), ("Custom", "custom")):
+            self.deformation_mode.addItem(label, key)
+        beam.addRow("Magnification", self.deformation_mode)
+        self.deformation_custom = self.numeric("Deformation magnification", 1e-9)
+        self.deformation_custom.setDecimals(9)
+        self.deformation_custom.setMinimum(1e-9)
+        self.deformation_custom.setValue(1.)
+        self.deformation_custom.setSuffix("×")
+        self.deformation_custom_label = QLabel("Custom magnification")
+        beam.addRow(self.deformation_custom_label, self.deformation_custom)
+        self.deformation_hint = QLabel()
+        self.deformation_hint.setWordWrap(True)
+        beam.addRow(self.deformation_hint)
+        self.deformation_mode.currentIndexChanged.connect(self.deformation_scale_changed)
+        self.deformation_custom.editingFinished.connect(self.deformation_scale_changed)
         self.stress_range = QComboBox()
         self.stress_range.setObjectName("inspectorCombo")
-        self.stress_range.addItems(["Full stress range", "Custom maximum"])
+        for label, key in (("Material yield", "yield"), ("Material UTS (reference)", "uts"), ("Automatic range", "auto"), ("Custom maximum", "custom")):
+            self.stress_range.addItem(label, key)
         self.stress_max = self.numeric("Stress legend maximum", 1e-9)
-        self.stress_max.setValue(1e6)
+        self.stress_max.setValue(1.)
+        self.stress_max.setEnabled(False)
         self.stress_range.currentIndexChanged.connect(self.stress_scale_changed)
         self.stress_max.editingFinished.connect(self.stress_scale_changed)
         beam.addRow("Stress colours", self.stress_range)
-        beam.addRow("Maximum (Pa)", self.stress_max)
+        beam.addRow("Maximum (MPa)", self.stress_max)
+        self.stress_hint = QLabel()
+        self.stress_hint.setWordWrap(True)
+        beam.addRow(self.stress_hint)
         self.results_tabs = QTabWidget()
         self.results_tabs.setObjectName("analysisResults")
         self.report = QLabel("Run analysis to see displacement, stress and equilibrium results.")
@@ -299,9 +355,15 @@ class StructuralWindow(QMainWindow):
         self.progress.setRange(0, 1)
         self.statusBar().setObjectName("analysisStatus")
         self.statusBar().addPermanentWidget(self.progress)
+        self.create_viewport_tools()
         self.statusBar().showMessage("Import a solid, choose a material, fix faces, then add loads.")
         for dock in self.panel_manager.docks.values():
             dock.addActions([self.undo_action, self.redo_action])
+        self._updating = True
+        try:
+            self.load_kind_changed()
+        finally:
+            self._updating = False
 
     def make_page(self, key, title):
         content = QWidget()
@@ -366,7 +428,7 @@ class StructuralWindow(QMainWindow):
         rail.setStyleSheet(load_stylesheet("viewport_tools"))
         self.tool_group = QActionGroup(self)
         self.tool_actions = {}
-        for key, label in (("select", "Select"), ("clamp", "Fixed Face"), ("pinned_face", "Pinned Face"), ("fixed_point", "Fixed Point"), ("point", "Point Force"), ("force", "Face Force"), ("pressure", "Face Pressure")):
+        for key, label in (("select", "Select"), ("clamp", "Fixed Face"), ("pinned_face", "Pinned Face"), ("fixed_point", "Fixed Point"), ("force", "Force")):
             action = QAction(tool_icon(key), label, self.tool_group)
             action.setCheckable(True)
             action.triggered.connect(lambda checked=False, tool=key: self.activate_tool(tool))
@@ -383,33 +445,48 @@ class StructuralWindow(QMainWindow):
         context = self.viewport.tool_context = QFrame(self.viewport)
         context.setObjectName("toolContext")
         context.setStyleSheet(load_stylesheet("viewport_tools"))
-        row = QHBoxLayout(context)
-        row.setContentsMargins(8, 4, 8, 4)
+        context_layout = QVBoxLayout(context)
+        context_layout.setContentsMargins(8, 4, 8, 4)
+        context_layout.setSpacing(4)
+        row = QHBoxLayout()
+        context_layout.addLayout(row)
         self.view_mode = ToolOptionCombo(context)
         self.view_mode.addItems(["Setup", "Mesh", "Stress"])
         self.view_mode.currentTextChanged.connect(self.view_changed)
         row.addWidget(self.view_mode)
-        add = QPushButton("Add Load…")
-        menu = QMenu(add)
-        for text, key in (("Force at a point", "point"), ("Force over a face", "force"), ("Pressure on a face", "pressure")):
-            menu.addAction(text, lambda key=key: self.new_load(key))
-        add.setMenu(menu)
+        add = QPushButton("Force")
+        add.clicked.connect(lambda: self.new_load())
         row.addWidget(add)
-        for action in (self.generate_action, self.solve_action):
+        self.tool_mode = ToolOptionCombo(context)
+        self.tool_input = ToolOptionCombo(context)
+        self.tool_mode.setAccessibleName("Force application")
+        self.tool_input.setAccessibleName("Force input")
+        self.tool_mode.setToolTip("Apply a force at a point, over a circular area, or over whole faces")
+        self.tool_input.setToolTip("Total XYZ force in N, or normal pressure over an Area or Face")
+        for combo, source in ((self.tool_mode, self.load_kind), (self.tool_input, self.load_input)):
+            for i in range(source.count()):
+                combo.addItem(source.itemText(i), source.itemData(i))
+            combo.setCurrentIndex(source.currentIndex())
+            combo.currentIndexChanged.connect(source.setCurrentIndex)
+            row.addWidget(combo)
+        action_row = QHBoxLayout()
+        context_layout.addLayout(action_row)
+        for action in (self.generate_action, self.solve_action, self.deformation_action):
             button = QToolButton()
             button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
             button.setDefaultAction(action)
-            row.addWidget(button)
+            action_row.addWidget(button)
         context.adjustSize()
         self.viewport.layout_tools()
 
     def activate_tool(self, key):
+        if self.load_preview_panel.active:
+            self.load_preview_panel.reset()
         self._repositioning_support = None
-        if key in ("point", "force", "pressure"):
-            self.new_load(key)
+        if key == "force":
+            self.new_load()
         elif key in ("clamp", "pinned_face", "fixed_point"):
             self._editing_load = None
-            self.selection_section.toggle.setChecked(key != "fixed_point")
             self.viewport.set_tool(key)
             self.select_item("supports", "")
             self.statusBar().showMessage("Click the solid to place a support. Ctrl-click extends the selected face support.")
@@ -431,13 +508,20 @@ class StructuralWindow(QMainWindow):
         mesh_changed = before.mesh_size != after.mesh_size or before.feature_angle != after.feature_angle
         if mesh_changed:
             self.mesh = None
-        numerical = replace(before, support_names=(), support_conditions=tuple(replace(v, name="") for v in before.support_conditions),
-                            loads=tuple(replace(v, name="") for v in before.loads), point_loads=tuple(replace(v, name="") for v in before.point_loads)) != replace(
-                            after, support_names=(), support_conditions=tuple(replace(v, name="") for v in after.support_conditions),
-                            loads=tuple(replace(v, name="") for v in after.loads), point_loads=tuple(replace(v, name="") for v in after.point_loads))
+        def numerical_inputs(value):
+            material = value.material
+            if material is not None:
+                material = replace(material, name="Material", preset_id=None, yield_strength=None, ultimate_tensile_strength=None)
+            return replace(value, material=material, support_names=(),
+                support_conditions=tuple(replace(v, name="") for v in value.support_conditions),
+                loads=tuple(replace(v, name="") for v in value.loads),
+                point_loads=tuple(replace(v, name="") for v in value.point_loads),
+                area_loads=tuple(replace(v, name="") for v in value.area_loads))
+        numerical = numerical_inputs(before) != numerical_inputs(after)
         if numerical:
+            self.load_preview_panel.reset(clear_cache=True)
             self._readiness_cache = None
-            if (mesh_changed and self.job.operation == "mesh") or self.job.operation == "solve":
+            if (mesh_changed and self.job.operation == "mesh") or self.job.operation in ("solve", "preview"):
                 self.job.invalidate()
             self.result = None
             self.diagram.result = None
@@ -458,10 +542,15 @@ class StructuralWindow(QMainWindow):
                 field.setValue(value)
             self.beam_label.setText(f"Clamp end: {'selected' if inputs.beam_clamp else 'missing'}\nFree end: {'selected' if inputs.beam_free else 'missing'}")
             kind, key = self._selection
-            if (kind in ("point", "load") and key not in {load.identifier for load in (*self.loads, *self.point_loads)}):
-                self._selection = ("loads", "")
-                self._editing_load = self._draft_anchor = None
-                self.viewport.draft_point = None
+            if kind in ("point", "load"):
+                selected = next((v for v in self.all_loads if v.identifier == key), None)
+                if selected is None:
+                    self._selection = ("loads", "")
+                    self._editing_load = self._draft_anchor = None
+                    self._load_draft = False
+                    self.viewport.draft_point = None
+                else:
+                    self._selection = ("point" if isinstance(selected, PointLoad) else "load", key)
             elif kind == "support" and key not in {v.identifier for v in self.conditions}:
                 self._selection = ("supports", "")
             self.rebuild_tree()
@@ -469,6 +558,7 @@ class StructuralWindow(QMainWindow):
         finally:
             self._updating = False
         self.refresh_view()
+        self.stress_scale_changed()
         self.update_title()
         self.update_actions()
 
@@ -500,6 +590,8 @@ class StructuralWindow(QMainWindow):
                 item(loads, load.name or ("Face Force" if load.kind == "force" else "Face Pressure"), "load", load.identifier)
             for load in self.point_loads:
                 item(loads, load.name, "point", load.identifier)
+            for load in self.area_loads:
+                item(loads, load.name, "load", load.identifier)
             item(root, "Mesh"+(f" — {len(self.mesh.tetrahedra)} tetrahedra" if self.mesh else ""), "mesh")
             item(root, "Results", "results")
         finally:
@@ -510,6 +602,11 @@ class StructuralWindow(QMainWindow):
         self.rebuild_tree()
         self.show_properties(kind, key)
 
+    def select_load(self, key):
+        load = next((v for v in self.all_loads if v.identifier == key), None)
+        if load is not None:
+            self.select_item("point" if isinstance(load, PointLoad) else "load", key)
+
     def tree_selected(self):
         if self._updating or not self.tree.selectedItems():
             return
@@ -518,6 +615,11 @@ class StructuralWindow(QMainWindow):
         self.show_properties(kind, key)
 
     def show_properties(self, kind, key):
+        if kind not in ("point", "load") and self._load_draft:
+            self._load_draft = False
+            self._editing_load = self._draft_anchor = None
+            self._draft_faces = ()
+            self.viewport.draft_area_load = self.viewport.draft_surface_load = self.viewport.draft_point = None
         page = {"support": "supports", "load": "loads", "point": "loads"}.get(kind, kind)
         self.properties.setCurrentIndex(self.pages.get(page, self.pages["solid"]))
         self._renaming_support = key if kind == "support" else None
@@ -531,7 +633,7 @@ class StructuralWindow(QMainWindow):
                 self.support_name.setText(support.name)
                 self.highlight_faces(support.triangles)
         elif kind in ("point", "load"):
-            load = next((load for load in (*self.loads, *self.point_loads) if load.identifier == key), None)
+            load = next((load for load in self.all_loads if load.identifier == key), None)
             if load is not None:
                 self.edit_load(load)
         self.viewport.selected_support = key if kind == "support" else None
@@ -543,9 +645,7 @@ class StructuralWindow(QMainWindow):
         if node:
             self.tree.setCurrentItem(node)
         menu = QMenu(self.tree)
-        menu.addAction("Add Point Force", lambda: self.new_load("point"))
-        menu.addAction("Add Face Force", lambda: self.new_load("force"))
-        menu.addAction("Add Face Pressure", lambda: self.new_load("pressure"))
+        menu.addAction("Add Force", lambda: self.new_load())
         if self._selection[0] in ("point", "load", "support"):
             menu.addSeparator()
             if self._selection[0] in ("point", "load"):
@@ -554,25 +654,19 @@ class StructuralWindow(QMainWindow):
         menu.exec(self.tree.mapToGlobal(position))
 
     def selected_triangles(self):
-        indices = [self.patch_list.row(item) for item in self.patch_list.selectedItems()]
+        indices = sorted(self.viewport.selected)
         if not indices:
             raise ValueError("Select one or more faces on the solid")
         return tuple(sorted(i for index in indices for i in self.patches[index].triangles))
 
-    def selection_changed(self):
-        self.viewport.selected = {self.patch_list.row(item) for item in self.patch_list.selectedItems()}
+    def highlight_faces(self, triangles):
+        selected = set(triangles)
+        self.viewport.selected = {i for i, patch in enumerate(self.patches) if set(patch.triangles) <= selected}
         self.viewport.refresh()
         self.update_load_preview()
 
-    def highlight_faces(self, triangles):
-        with QSignalBlocker(self.patch_list):
-            self.patch_list.clearSelection()
-            for i, patch in enumerate(self.patches):
-                self.patch_list.item(i).setSelected(set(patch.triangles) <= set(triangles))
-        self.selection_changed()
-
     def select_patch(self, index, additive):
-        if not 0 <= index < self.patch_list.count():
+        if not 0 <= index < len(self.patches):
             return
         tool = self.viewport.tool
         chosen = self.patches[index].triangles
@@ -590,6 +684,11 @@ class StructuralWindow(QMainWindow):
                     self.state.edit("Place Support", support_conditions=(*self.conditions, value))
             self.select_item("support", value.identifier)
         elif tool in ("force", "pressure"):
+            if self._load_draft:
+                self._draft_faces = tuple(sorted(set(self._draft_faces) | set(chosen))) if additive else tuple(chosen)
+                self.highlight_faces(self._draft_faces)
+                self.update_load_preview()
+                return
             current = next((v for v in self.loads if v.identifier == self._selection[1] and self._selection[0] == "load" and v.kind == tool), None)
             if additive and current:
                 value = replace(current, triangles=tuple(sorted(set(current.triangles) | set(chosen))))
@@ -601,14 +700,18 @@ class StructuralWindow(QMainWindow):
                     self.state.edit("Place Load", loads=(*self.loads, value))
             self.select_item("load", value.identifier)
         else:
-            item = self.patch_list.item(index)
-            selected = item.isSelected()
-            if not additive:
-                self.patch_list.clearSelection()
-            item.setSelected(not selected if additive else True)
+            if additive:
+                self.viewport.selected.symmetric_difference_update({index})
+            else:
+                self.viewport.selected = {index}
+            self.viewport.refresh()
+            self.update_load_preview()
 
     def view_changed(self, text):
         self.viewport.display = text
+        if text == "Setup":
+            self.load_preview_panel.reset()
+            self.viewport.set_deformation(False)
         self.viewport.refresh()
 
     def material_changed(self, value):
@@ -633,7 +736,17 @@ class StructuralWindow(QMainWindow):
         self.viewport.loads = set(i for load in self.loads for i in load.triangles)
         self.viewport.surface_loads = tuple(self.loads)
         self.viewport.point_loads = tuple(self.point_loads)
-        self.viewport.set_data(self.geometry, self.patches, self.mesh, self.result)
+        self.viewport.area_loads = tuple(self.area_loads)
+        self.viewport.stress_material = self.state.inputs.material
+        preview = self.load_preview_panel
+        if preview.active:
+            self.viewport.set_data(self.geometry, self.patches, self.mesh, preview.current)
+        else:
+            self.viewport.set_data(self.geometry, self.patches, self.mesh, self.result)
+        self.update_deformation_controls()
+        preview.refresh()
+        if preview.active:
+            preview.apply(preview.factor)
 
     def add_support(self):
         try:
@@ -670,79 +783,151 @@ class StructuralWindow(QMainWindow):
         self.state.edit("Change Support Type", support_conditions=tuple(replace(v, kind=kind) if v.identifier == self._renaming_support and v.kind != "fixed_point" else v for v in self.conditions))
 
     def reposition_support(self):
+        if self.load_preview_panel.active:
+            self.load_preview_panel.reset()
         if self._renaming_support:
             self._repositioning_support = self._renaming_support
             self.viewport.set_tool("fixed_point")
             self.tool_actions["fixed_point"].setChecked(True)
             self.statusBar().showMessage("Click the new fixed-point location. Escape exits placement.")
 
-    def new_load(self, kind):
-        self.selection_section.toggle.setChecked(kind != "point")
-        self._editing_load = None
-        self._draft_anchor = None
-        self.load_name.clear()
-        self.load_kind.setEnabled(True)
-        self.load_kind.setCurrentIndex(self.load_kind.findData(kind))
-        for field in self.force_fields:
-            field.setValue(0.)
-        self.pressure.setValue(0.)
+    def new_load(self, kind=None):
+        if self.load_preview_panel.active:
+            self.load_preview_panel.reset()
+        mode = self._last_force_mode if kind is None else "force" if kind == "pressure" else kind
+        input_kind = self._last_force_input if kind is None else "pressure" if kind == "pressure" else "force"
+        if mode == "point":
+            input_kind = "force"
+        self._editing_load = self._draft_anchor = None
+        self._draft_faces = ()
+        self._load_draft = self._repositioning = False
+        self._load_value_required = False
+        self._updating = True
+        try:
+            self.load_name.clear()
+            self.load_kind.setCurrentIndex(self.load_kind.findData(mode))
+            self.load_input.setCurrentIndex(self.load_input.findData(input_kind))
+            for field in self.force_fields:
+                field.setValue(0.)
+            self.pressure.setValue(0.)
+            self.highlight_faces(())
+            self.load_kind_changed()
+        finally:
+            self._updating = False
         self._selection = ("loads", "")
         self.properties.setCurrentIndex(self.pages["loads"])
-        self.load_kind_changed()
-        if kind == "point":
-            self.begin_point_placement()
-        else:
-            self.viewport.set_tool(kind)
-        self.tool_actions[kind].setChecked(True)
+        self._last_force_mode, self._last_force_input = mode, input_kind
+        self.viewport.set_tool(self.placement_tool())
+        self.tool_actions["force"].setChecked(True)
+        self.update_load_preview()
+        self.statusBar().showMessage("Choose Point, Area or Face, then click the solid to place a load.")
+
+    def placement_tool(self):
+        mode = self.load_kind.currentData()
+        return self.load_input.currentData() if mode == "force" else mode
+
+    def containing_face(self, triangle):
+        return next((patch.triangles for patch in self.patches if triangle in patch.triangles), ())
+
+    def default_area_radius(self, faces):
+        region = surface_region(self.geometry.points, self.geometry.triangles, faces)
+        return max(1e-9, .1*np.sqrt(region.area))
 
     def load_kind_changed(self):
         if not hasattr(self, "force_row"):
             return
-        kind = self.load_kind.currentData()
-        pressure = kind == "pressure"
+        mode = self.load_kind.currentData()
+        pressure = self.load_input.currentData() == "pressure"
+        if mode == "point" and pressure and not self._updating:
+            with QSignalBlocker(self.load_kind):
+                self.load_kind.setCurrentIndex(self.load_kind.findData(self._shown_mode))
+            with QSignalBlocker(self.tool_mode):
+                self.tool_mode.setCurrentIndex(self.load_kind.currentIndex())
+            self.statusBar().showMessage("Select Total force and enter XYZ components before switching to Point.")
+            return
+        if not self._updating:
+            original = next((v for v in self.all_loads if v.identifier == self._editing_load), None)
+            if original is not None and mode != self._shown_mode:
+                self._load_draft = True
+                if self._draft_anchor:
+                    self._draft_faces = self.containing_face(self._draft_anchor[0])
+                    self.highlight_faces(self._draft_faces)
+                    if mode == "area" and not isinstance(original, AreaLoad):
+                        with QSignalBlocker(self.area_radius):
+                            self.area_radius.setValue(self.default_area_radius(self._draft_faces))
+            self._last_force_mode = mode
+            if self._load_draft or original is None:
+                self.viewport.set_tool(self.placement_tool())
+                self.tool_actions["force"].setChecked(True)
+        self._shown_mode = mode
+        self.load_input.model().item(self.load_input.findData("pressure")).setEnabled(mode != "point")
         for widget in (self.force_label, self.force_row):
             widget.setVisible(not pressure)
         for widget in (self.pressure_label, self.pressure_row, self.direction_label, self.pressure_direction):
             widget.setVisible(pressure)
-        self.place_button.setVisible(kind == "point" and self._editing_load is not None)
-        self.place_button.setText("Reposition Point…")
-        if not self._editing_load and not self._updating:
-            self.viewport.set_tool(kind)
+        for widget in (self.radius_label, self.area_radius):
+            widget.setVisible(mode == "area")
+        self.place_button.setVisible(mode in ("point", "area") and self._editing_load is not None)
+        self.place_button.setText("Reposition Center…" if mode == "area" else "Reposition Point…")
+        if hasattr(self, "tool_mode"):
+            for target, source in ((self.tool_mode, self.load_kind), (self.tool_input, self.load_input)):
+                with QSignalBlocker(target):
+                    target.setCurrentIndex(source.currentIndex())
+            self.tool_input.model().item(self.tool_input.findData("pressure")).setEnabled(mode != "point")
         self.update_load_preview()
+
+    def load_input_changed(self):
+        if not self._updating:
+            if self._editing_load:
+                self._load_draft = True
+                self._load_value_required = True
+            with QSignalBlocker(self.pressure):
+                self.pressure.setValue(0.)
+            for field in self.force_fields:
+                with QSignalBlocker(field):
+                    field.setValue(0.)
+            self._last_force_input = self.load_input.currentData()
+        self.load_kind_changed()
 
     def edit_load(self, load):
         was_updating = self._updating
         self._updating = True
-        self._editing_load = load.identifier
-        kind = "point" if isinstance(load, PointLoad) else load.kind
-        self.load_kind.setCurrentIndex(self.load_kind.findData(kind))
-        self.load_kind.setEnabled(False)
-        self.load_name.setText(load.name)
-        if kind == "point":
-            self._draft_anchor = (load.source_triangle, load.barycentric)
-            values = load.force
-        elif kind == "force":
-            values = load.value
-            self.highlight_faces(load.triangles)
-        else:
-            values = (0., 0., 0.)
-            self.pressure.setValue(abs(load.value[0])/self.pressure_units.currentData())
-            self.pressure_direction.setCurrentIndex(0 if load.value[0] >= 0 else 1)
-            self.highlight_faces(load.triangles)
-        for field, value in zip(self.force_fields, values):
-            field.setValue(value)
-        self.load_kind_changed()
-        self._updating = was_updating
+        try:
+            self._editing_load = load.identifier
+            self._load_draft = False
+            self._load_value_required = False
+            mode = "point" if isinstance(load, PointLoad) else "area" if isinstance(load, AreaLoad) else "force"
+            input_kind = "force" if isinstance(load, PointLoad) else load.kind
+            self.load_kind.setCurrentIndex(self.load_kind.findData(mode))
+            self.load_input.setCurrentIndex(self.load_input.findData(input_kind))
+            self.load_kind.setEnabled(True)
+            self.load_name.setText(load.name)
+            self._draft_anchor = (load.source_triangle, load.barycentric) if isinstance(load, (PointLoad, AreaLoad)) else None
+            self._draft_faces = load.triangles if not isinstance(load, PointLoad) else ()
+            self.highlight_faces(self._draft_faces if mode == "force" else ())
+            if isinstance(load, AreaLoad):
+                self.area_radius.setValue(load.radius)
+            values = load.force if isinstance(load, PointLoad) else load.value if input_kind == "force" else (0., 0., 0.)
+            self.pressure.setValue(abs(load.value[0])/self.pressure_units.currentData() if input_kind == "pressure" else 0.)
+            self.pressure_direction.setCurrentIndex(0 if input_kind != "pressure" or load.value[0] >= 0 else 1)
+            for field, value in zip(self.force_fields, values):
+                field.setValue(value)
+            self.load_kind_changed()
+        finally:
+            self._updating = was_updating
+        self.update_load_preview()
 
     def begin_point_placement(self):
+        if self.load_preview_panel.active:
+            self.load_preview_panel.reset()
         if self.geometry is None:
             self.error("Import a solid first")
             return
         self._repositioning = self._editing_load is not None
-        self.viewport.set_tool("point")
-        self.tool_actions["point"].setChecked(True)
+        self.viewport.set_tool(self.placement_tool())
+        self.tool_actions["force"].setChecked(True)
         self.update_load_preview()
-        self.statusBar().showMessage("Click the solid to place a point force. Escape cancels placement.")
+        self.statusBar().showMessage("Click the solid to choose a location. Escape cancels placement.")
 
     def point_picked(self, triangle, barycentric):
         barycentric = tuple(barycentric)
@@ -764,7 +949,30 @@ class StructuralWindow(QMainWindow):
                 self.state.edit("Place Fixed Point", support_conditions=(*self.conditions, value))
             self.select_item("support", value.identifier)
             return
+        previous_anchor = self._draft_anchor
         self._draft_anchor = (triangle, barycentric)
+        if self.load_kind.currentData() == "area":
+            self._draft_faces = self.containing_face(triangle)
+            if previous_anchor is None:
+                with QSignalBlocker(self.area_radius):
+                    self.area_radius.setValue(self.default_area_radius(self._draft_faces))
+            if not self._repositioning and not self._load_draft:
+                self._editing_load = None
+                self._selection = ("loads", "")
+                with QSignalBlocker(self.area_radius):
+                    self.area_radius.setValue(self.default_area_radius(self._draft_faces))
+            if self._repositioning and not self._load_draft:
+                self.add_load()
+            else:
+                self._load_draft = True
+                self.update_load_preview()
+            self._repositioning = False
+            self.statusBar().showMessage("Area preview: adjust the radius and load, then Apply. Escape cancels.")
+            return
+        if self._load_draft:
+            self._repositioning = False
+            self.update_load_preview()
+            return
         if self._repositioning and self._editing_load:
             self.add_load()
             self._repositioning = False
@@ -778,98 +986,145 @@ class StructuralWindow(QMainWindow):
         self.select_item("point", value.identifier)
         self.statusBar().showMessage("Point force selected. Enter XYZ force in Properties; edits apply automatically.")
 
+    def draft_load(self):
+        mode = self.load_kind.currentData()
+        kind = self.load_input.currentData()
+        name = self.load_name.text().strip() or (mode.title() if mode != "force" else "Face")+" "+("Force" if kind == "force" else "Pressure")
+        identity = {"identifier": self._editing_load} if self._editing_load else {}
+        force = tuple(field.value() for field in self.force_fields)
+        value = force if kind == "force" else (self.pressure.value()*self.pressure_units.currentData()*(1 if self.pressure_direction.currentIndex() == 0 else -1),)
+        if mode == "point":
+            if kind != "force":
+                raise ValueError("Point mode requires Total force")
+            if self._draft_anchor is None:
+                raise ValueError("Click the solid to choose a point")
+            return PointLoad(*self._draft_anchor, force, name=name, **identity)
+        if mode == "area":
+            if self._draft_anchor is None:
+                raise ValueError("Click a planar face to choose the Area center")
+            faces = self._draft_faces or self.containing_face(self._draft_anchor[0])
+            load = AreaLoad(faces, *self._draft_anchor, self.area_radius.value(), kind, value, name=name, **identity)
+            area_region(self.geometry.points, self.geometry.triangles, load)
+            return load
+        faces = self._draft_faces if self._load_draft and self._draft_faces else self.selected_triangles()
+        return SurfaceLoad(faces, kind, value, name=name, **identity)
+
+    def load_region(self, load):
+        if isinstance(load, PointLoad):
+            point = point_position(self.geometry, load)
+            return point, None
+        region = (area_region(self.geometry.points, self.geometry.triangles, load) if isinstance(load, AreaLoad)
+                  else surface_region(self.geometry.points, self.geometry.triangles, load.triangles))
+        return region.centroid, region
+
     def update_load_preview(self, *args):
         if not hasattr(self, "apply_load_button"):
             return
-        kind = self.load_kind.currentData()
-        force = tuple(field.value() for field in self.force_fields)
-        self.viewport.preview_force = force
-        self.viewport.draft_surface_load = None
-        ready = self.geometry is not None
-        if kind == "point":
-            ready &= self._draft_anchor is not None and any(force)
-            if self._draft_anchor and self.geometry:
-                triangle, bary = self._draft_anchor
-                preview = PointLoad(triangle, bary, force)
-                position = point_position(self.geometry, preview)
-                self.viewport.draft_point = position if self._repositioning else None
-                location = ", ".join(f"{x:.6g}" for x in position)
-                self.load_hint.setText(f"Point XYZ: {location} m. Force acts at this one point.")
+        self.viewport.draft_surface_load = self.viewport.draft_area_load = None
+        self.viewport.draft_point = None
+        self.viewport.preview_force = tuple(field.value() for field in self.force_fields)
+        ready = False
+        try:
+            if self.geometry is None:
+                raise ValueError("Import a solid before placing a load")
+            load = self.draft_load()
+            centroid, region = self.load_region(load)
+            if region is None:
+                message = "Point XYZ: "+", ".join(f"{x:.6g}" for x in centroid)+" m. Ideal point stress is singular."
+                if self._load_draft or self._repositioning:
+                    self.viewport.draft_point = centroid
             else:
-                self.viewport.draft_point = None
-                self.load_hint.setText("Click Place Point, then click a location on the solid.")
-        else:
-            self.viewport.draft_point = None
-            ready &= bool(self.patch_list.selectedItems()) and (self.pressure.value() > 0 if kind == "pressure" else any(force))
-            if not self._editing_load and self.viewport.tool in ("force", "pressure") and self.patch_list.selectedItems():
-                value = force if kind == "force" else (self.pressure.value()*self.pressure_units.currentData()*(1 if self.pressure_direction.currentIndex() == 0 else -1),)
-                self.viewport.draft_surface_load = SurfaceLoad(self.selected_triangles(), kind, value, identifier="draft", name="Preview")
-            self.load_hint.setText("Pressure pushes perpendicular to each face; total force depends on area." if kind == "pressure" else "The total XYZ force is spread uniformly over all selected faces.")
-        title = {"point": "Point Force", "force": "Face Force", "pressure": "Pressure"}[kind]
-        self.apply_load_button.setText("Duplicate Load")
-        self.apply_load_button.setEnabled(bool(self._editing_load))
+                message = f"Loaded area: {region.area:.6g} m². Centroid XYZ: "+", ".join(f"{x:.6g}" for x in centroid)+" m."
+                message += " Total XYZ force is distributed uniformly." if load.kind == "force" else " Pressure acts normal to the surface."
+                if isinstance(load, AreaLoad):
+                    # Also display existing footprints while radius fields are edited.
+                    self.viewport.draft_area_load = replace(load, identifier="draft")
+                elif self._load_draft or self._editing_load is None:
+                    self.viewport.draft_surface_load = replace(load, identifier="draft")
+            original = next((v for v in self.all_loads if v.identifier == self._editing_load), None)
+            if self._load_draft and original is not None:
+                old_centroid, _ = self.load_region(original)
+                original_force = original.force if isinstance(original, PointLoad) else original.value if original.kind == "force" else None
+                if original_force is not None and (isinstance(load, PointLoad) or load.kind == "force"):
+                    delta = np.cross(centroid-old_centroid, original_force)
+                    message += " Effective application point moves to this centroid; moment change XYZ: "+", ".join(f"{x:.6g}" for x in delta)+" N·m."
+            ready = True
+        except ValueError as error:
+            message = str(error)
+        self.load_hint.setText(message)
+        self.save_load_button.setVisible(self._load_draft)
+        self.cancel_load_button.setVisible(self._load_draft)
+        entered = any(field.value() for field in self.force_fields) if self.load_input.currentData() == "force" else self.pressure.value() != 0
+        self.save_load_button.setEnabled(ready and (not self._load_value_required or entered))
+        self.apply_load_button.setEnabled(bool(self._editing_load) and not self._load_draft)
         self.viewport.refresh()
+        if hasattr(self, "readiness"):
+            self.update_actions()
+
+    def apply_load_draft(self):
+        if self.save_load_button.isEnabled():
+            self.add_load()
 
     def add_load(self):
         try:
-            kind = self.load_kind.currentData()
-            name = self.load_name.text().strip() or {"point": "Point Force", "force": "Face Force", "pressure": "Face Pressure"}[kind]
-            identity = {"identifier": self._editing_load} if self._editing_load else {}
-            if kind == "point":
-                if self._draft_anchor is None:
-                    raise ValueError("Place the point on the solid first")
-                load = PointLoad(*self._draft_anchor, tuple(w.value() for w in self.force_fields), name=name, **identity)
-                values = [item for item in self.point_loads if item.identifier != load.identifier]
-                values.append(load)
-                self.state.edit("Update Point Force" if self._editing_load else "Add Point Force", point_loads=tuple(values))
-                selected_kind = "point"
-            else:
-                chosen = self.selected_triangles()
-                value = tuple(w.value() for w in self.force_fields) if kind == "force" else (self.pressure.value()*self.pressure_units.currentData()*(1 if self.pressure_direction.currentIndex() == 0 else -1),)
-                load = SurfaceLoad(chosen, kind, value, name=name, **identity)
-                values = [item for item in self.loads if item.identifier != load.identifier]
-                values.append(load)
-                self.state.edit("Update Face Load" if self._editing_load else "Add Face Load", loads=tuple(values))
-                selected_kind = "load"
-            self.select_item(selected_kind, load.identifier)
+            load = self.draft_load()
+            updates = {key: tuple(v for v in getattr(self.state.inputs, key) if v.identifier != load.identifier)
+                       for key in ("loads", "point_loads", "area_loads")}
+            key = "point_loads" if isinstance(load, PointLoad) else "area_loads" if isinstance(load, AreaLoad) else "loads"
+            updates[key] = (*updates[key], load)
+            was_draft = self._load_draft
+            self._load_draft = False
+            self._selection = ("point" if isinstance(load, PointLoad) else "load", load.identifier)
+            self.state.edit("Change Force Application" if was_draft else "Update Force" if self._editing_load else "Add Force", **updates)
+            self.select_load(load.identifier)
         except ValueError as error:
             self.error(error)
 
     def commit_load(self, *args):
-        if not self._updating and self._editing_load:
+        if not self._updating:
+            self._load_value_required = False
+        if not self._updating and self._editing_load and not self._load_draft:
             self.add_load()
+        else:
+            self.update_load_preview()
 
     def pressure_unit_changed(self):
+        scale = self.pressure_units.currentData()
         if self._updating:
+            self._pressure_unit_scale = scale
             return
-        value = next((v for v in self.loads if v.identifier == self._editing_load and v.kind == "pressure"), None)
-        if value:
-            with QSignalBlocker(self.pressure):
-                self.pressure.setValue(abs(value.value[0])/self.pressure_units.currentData())
+        physical = self.pressure.value()*self._pressure_unit_scale
+        self._pressure_unit_scale = scale
+        with QSignalBlocker(self.pressure):
+            self.pressure.setValue(physical/scale)
         self.update_load_preview()
 
     def duplicate_load(self):
-        value = next((v for v in (*self.loads, *self.point_loads) if v.identifier == self._editing_load), None)
-        if value is None:
+        value = next((v for v in self.all_loads if v.identifier == self._editing_load), None)
+        if value is None or self._load_draft:
             return
         from uuid import uuid4
         value = replace(value, identifier=uuid4().hex, name=value.name+" Copy")
-        key = "point_loads" if isinstance(value, PointLoad) else "loads"
+        key = "point_loads" if isinstance(value, PointLoad) else "area_loads" if isinstance(value, AreaLoad) else "loads"
         self.state.edit("Duplicate Load", **{key: (*getattr(self.state.inputs, key), value)})
-        self.select_item("point" if isinstance(value, PointLoad) else "load", value.identifier)
+        self.select_load(value.identifier)
 
     def cancel_placement(self):
+        if hasattr(self, "load_preview_panel") and self.load_preview_panel.active:
+            self.load_preview_panel.reset()
         self._repositioning = False
         self._repositioning_support = None
+        self._load_draft = False
+        self._load_value_required = False
         self.viewport.set_tool("select")
-        self.viewport.draft_point = None
-        self.viewport.hover_point = None
-        self.viewport.draft_surface_load = None
-        existing = next((v for v in (*self.loads, *self.point_loads) if v.identifier == self._editing_load), None)
+        self.viewport.draft_point = self.viewport.hover_point = None
+        self.viewport.draft_surface_load = self.viewport.draft_area_load = None
+        existing = next((v for v in self.all_loads if v.identifier == self._editing_load), None)
         if existing is not None:
             self.edit_load(existing)
         else:
             self._draft_anchor = None
+            self._draft_faces = ()
         self.tool_actions["select"].setChecked(True)
         self.update_load_preview()
         self.viewport.refresh()
@@ -878,10 +1133,9 @@ class StructuralWindow(QMainWindow):
         kind, key = self._selection
         if kind == "support":
             self.state.edit("Delete Support", support_conditions=tuple(v for v in self.conditions if v.identifier != key))
-        elif kind == "point":
-            self.state.edit("Delete Point Force", point_loads=tuple(v for v in self.point_loads if v.identifier != key))
-        elif kind == "load":
-            self.state.edit("Delete Face Load", loads=tuple(v for v in self.loads if v.identifier != key))
+        elif kind in ("point", "load"):
+            self.state.edit("Delete Load", **{field: tuple(v for v in getattr(self.state.inputs, field) if v.identifier != key)
+                                           for field in ("loads", "point_loads", "area_loads")})
         self._editing_load = None
         self._draft_anchor = None
         self.cancel_placement()
@@ -898,14 +1152,17 @@ class StructuralWindow(QMainWindow):
         self.state.edit("Clear Beam Configuration", beam_clamp=None, beam_free=None)
 
     def frame_selected(self):
+        if self.viewport.deformation_enabled:
+            self.viewport.frame_all()
+            return
         kind, key = self._selection
         if kind == "support" and self.geometry:
             support = next((v for v in self.conditions if v.identifier == key and v.kind == "fixed_point"), None)
             if support:
                 self.viewport.frame_point(point_position(self.geometry, support))
                 return
-        if kind == "point" and self.geometry:
-            load = next((v for v in self.point_loads if v.identifier == key), None)
+        if kind in ("point", "load") and self.geometry:
+            load = next((v for v in (*self.point_loads, *self.area_loads) if v.identifier == key), None)
             if load:
                 self.viewport.frame_point(point_position(self.geometry, load))
                 return
@@ -918,13 +1175,14 @@ class StructuralWindow(QMainWindow):
         value = inputs.material
         if value is None or value.young_modulus is None or value.poisson_ratio is None:
             raise ValueError("Choose a material preset or complete the Custom material properties")
-        material = Material(value.young_modulus, value.poisson_ratio, value.density, value.name, value.preset_id)
+        material = Material(value.young_modulus, value.poisson_ratio, value.density, value.name, value.preset_id,
+                            value.yield_strength, value.ultimate_tensile_strength)
         gravity = inputs.gravity if inputs.gravity_enabled else (0., 0., 0.)
         if bool(inputs.beam_clamp) != bool(inputs.beam_free):
             raise ValueError("Select both beam ends, or clear the beam configuration")
         beam = BeamConfiguration(inputs.beam_clamp, inputs.beam_free) if inputs.beam_clamp else None
         return AnalysisSetup(self.geometry.path, self.geometry.fingerprint, self.geometry.units, material,
-            self.mesh_settings(), inputs.supports, inputs.loads, gravity, beam, inputs.point_loads, inputs.support_names, inputs.support_conditions)
+            self.mesh_settings(), inputs.supports, inputs.loads, gravity, beam, inputs.point_loads, inputs.support_names, inputs.support_conditions, inputs.area_loads)
 
     def confirm_unsaved(self, title):
         if not self.dirty:
@@ -942,11 +1200,15 @@ class StructuralWindow(QMainWindow):
         self._readiness_cache = None
         self.job.invalidate()
         self.geometry = self.mesh = self.result = None
+        self.load_preview_panel.reset(clear_cache=True)
+        self.reset_deformation()
         self.patches = ()
-        self.patch_list.clear()
+        self.viewport.selected.clear()
         self.analysis_path = None
         self._geometry_dirty = False
         self.state.reset(StructuralInputs())
+        self.cancel_placement()
+        self.stress_range.setCurrentIndex(self.stress_range.findData("yield"))
         self.summary.setText("Import one closed .simuOPart, OBJ or STL solid.")
         self.select_item("solid")
 
@@ -964,6 +1226,13 @@ class StructuralWindow(QMainWindow):
         self._readiness_cache = None
         self.job.invalidate()
         self.geometry = self.mesh = self.result = None
+        self.load_preview_panel.reset(clear_cache=True)
+        self.reset_deformation()
+        self._editing_load = self._draft_anchor = None
+        self._draft_faces = ()
+        self._load_draft = self._repositioning = False
+        self.cancel_placement()
+        self.stress_range.setCurrentIndex(self.stress_range.findData("yield"))
         self.patches = ()
         self.pending_setup = setup
         self.pending_geometry_path = str(path)
@@ -974,7 +1243,7 @@ class StructuralWindow(QMainWindow):
                     self._pending_units = "m"
             except OSError:
                 pass
-        self.patch_list.clear()
+        self.viewport.selected.clear()
         self.diagram.result = None
         self.diagram.update()
         self.summary.setText(f"Importing {Path(path).name}…")
@@ -1040,6 +1309,8 @@ class StructuralWindow(QMainWindow):
             return False
 
     def solve_reason(self):
+        if self._load_draft:
+            return "Apply or cancel the Force preview before running analysis."
         try:
             setup = self.setup()
             if not self.mesh_current():
@@ -1060,10 +1331,89 @@ class StructuralWindow(QMainWindow):
         self.generate_action.setEnabled(self.geometry is not None and not busy and not current)
         self.generate_action.setToolTip("Mesh is up to date" if current else "Generate the tetrahedral mesh without running analysis")
         self.readiness.setText(reason or "Ready to run analysis with the current mesh.")
+        self.load_preview_action.setEnabled(self.result is not None and not busy and not self._load_draft)
+        self.load_preview_panel.refresh()
+        if hasattr(self, "deformed_shape"):
+            self.update_deformation_controls()
+
+    def deformation_available(self):
+        return self.geometry is not None and self.mesh is not None and self.result is not None and not self._load_draft
+
+    def deformation_toggled(self, enabled):
+        if enabled and not self.deformation_available():
+            self.deformation_action.setChecked(False)
+            return
+        if enabled:
+            self.cancel_placement()
+            if self.view_mode.currentText() == "Setup":
+                self.view_mode.setCurrentText("Stress")
+        self.viewport.set_deformation(enabled)
+        self.update_deformation_controls()
+
+    def deformation_scale_changed(self):
+        if self.load_preview_panel.active:
+            self.viewport.deformation_mode = self.deformation_mode.currentData()
+            self.viewport.custom_deformation_scale = self.deformation_custom.value()
+            self.load_preview_panel.apply(self.load_preview_panel.factor)
+            return
+        self.viewport.deformation_mode = self.deformation_mode.currentData()
+        self.viewport.custom_deformation_scale = self.deformation_custom.value()
+        self.viewport.refresh()
+        self.update_deformation_controls()
+
+    def update_deformation_controls(self):
+        available = self.deformation_available()
+        if not available and self.deformation_action.isChecked():
+            self.deformation_action.setChecked(False)
+        self.deformation_action.setEnabled(available)
+        self.deformation_action.setToolTip("Inspect calculated bending. Starting a placement tool restores the original shape." if available else
+            "Apply or cancel the Force preview first." if self._load_draft else "Run analysis to preview deformation.")
+        self.deformed_shape.setEnabled(available)
+        with QSignalBlocker(self.deformed_shape):
+            self.deformed_shape.setChecked(self.deformation_action.isChecked())
+        self.deformation_mode.setEnabled(available)
+        custom = self.deformation_mode.currentData() == "custom"
+        self.deformation_custom_label.setVisible(custom)
+        self.deformation_custom.setVisible(custom)
+        self.deformation_custom.setEnabled(available)
+        note = "Elastic deformation preview; fracture and permanent bending are not simulated."
+        if self.viewport.deformation_enabled:
+            self.viewport.display_points()
+            note = f"Visual magnification: {self.viewport.deformation_scale:.6g}×. Actual peak displacement: {self.viewport.peak_displacement:.6g} m. "+note
+        self.deformation_hint.setText(note)
+
+    def reset_deformation(self):
+        self.deformation_action.setChecked(False)
+        self.deformation_mode.setCurrentIndex(self.deformation_mode.findData("auto"))
+        self.deformation_custom.setValue(1.)
+        self.deformation_scale_changed()
 
     def stress_scale_changed(self):
-        self.viewport.display_maximum = self.stress_max.value() if self.stress_range.currentIndex() == 1 else None
+        self.stress_max.setEnabled(self.stress_range.currentData() == "custom")
+        self.viewport.stress_mode = self.stress_range.currentData()
+        self.viewport.custom_stress_maximum = self.stress_max.value()*1e6
+        self.viewport.stress_material = self.state.inputs.material
+        self.viewport.update_stress_scale()
+        self.stress_hint.setText(self.viewport.stress_scale_label)
         self.viewport.refresh()
+        self.update_report()
+
+    def update_report(self):
+        value = self.result
+        if value is None:
+            return
+        peak = float(value.von_mises.max())
+        material = self.state.inputs.material
+        note = "\nStress at an ideal point force is singular and may increase with mesh refinement." if self.point_loads else ""
+        if material is not None and material.yield_strength is not None and peak >= material.yield_strength:
+            note += "\nComputed peak reaches material yield: the linear-elastic calculation exceeds the material's elastic range."
+        if self.stress_range.currentData() == "uts":
+            note += "\nUTS is a reference comparison; this linear-elastic analysis does not predict fracture."
+        self.report.setText(f"Peak displacement: {np.linalg.norm(value.displacement, axis=1).max():.6g} m\nUnaveraged peak von Mises: {peak/1e6:.6g} MPa\nStress colours: {self.viewport.stress_scale_label}\nResidual / force / moment errors: {value.residual_error:.3g} / {value.force_error:.3g} / {value.moment_error:.3g}\nReaction XYZ (N), moment XYZ (N·m): {np.array2string(value.root_reaction, precision=5)}\n{value.beam_message}{note}")
+        reactions = "\n".join(f"{next((s.name for s in self.conditions if s.identifier == key), key)}: F {np.array2string(data['force'], precision=5)} N; M {np.array2string(data['moment'], precision=5)} N·m" for key, data in value.support_reactions.items())
+        self.report.setText(self.report.text()+"\nSupport reactions about each support origin:\n"+reactions)
+        if self.load_preview_panel.active:
+            self.report.setText("Original analyzed design (unchanged). Current load preview readouts are in Results Properties.\n"+self.report.text())
 
     def generate_mesh(self):
         if self.geometry is None:
@@ -1079,6 +1429,7 @@ class StructuralWindow(QMainWindow):
         self.start_job("mesh", self.geometry, self.mesh_settings(), self.required_points())
 
     def solve(self):
+        self.load_preview_panel.reset(clear_cache=True)
         reason = self.solve_reason()
         if reason:
             self.statusBar().showMessage(reason)
@@ -1096,6 +1447,7 @@ class StructuralWindow(QMainWindow):
             self.error(error)
 
     def cancel(self):
+        self.load_preview_panel.reset()
         self.job.invalidate()
         self.update_actions()
         self.progress.setRange(0, 1)
@@ -1107,6 +1459,7 @@ class StructuralWindow(QMainWindow):
             if kind == "progress":
                 self.statusBar().showMessage(value)
             elif kind == "error":
+                if operation == "preview": self.load_preview_panel.reset()
                 self.error(value)
             elif kind == "result":
                 if operation == "prepare":
@@ -1124,15 +1477,14 @@ class StructuralWindow(QMainWindow):
                     self.view_mode.setCurrentText("Mesh")
                     self.statusBar().showMessage(f"Mesh: {len(value.points)} vertices, {len(value.tetrahedra)} tetrahedra")
                     self.rebuild_tree()
+                elif operation == "preview":
+                    self.load_preview_panel.accept(value)
                 elif operation == "solve":
                     self.result = value
                     self.view_mode.setCurrentText("Stress")
                     self.diagram.result = value
                     self.diagram.update()
-                    note = "\nStress at an ideal point force is singular and may increase with mesh refinement." if self.point_loads else ""
-                    self.report.setText(f"Peak displacement: {np.linalg.norm(value.displacement, axis=1).max():.6g} m\nUnaveraged peak von Mises: {value.von_mises.max():.6g} Pa\nResidual / force / moment errors: {value.residual_error:.3g} / {value.force_error:.3g} / {value.moment_error:.3g}\nReaction XYZ (N), moment XYZ (N·m): {np.array2string(value.root_reaction, precision=5)}\n{value.beam_message}{note}")
-                    reactions = "\n".join(f"{next((s.name for s in self.conditions if s.identifier == key), key)}: F {np.array2string(data['force'], precision=5)} N; M {np.array2string(data['moment'], precision=5)} N·m" for key, data in value.support_reactions.items())
-                    self.report.setText(self.report.text()+"\nSupport reactions about each support origin:\n"+reactions)
+                    self.stress_scale_changed()
                     self.panel_manager.docks["analysis_results"].show()
                     self.statusBar().showMessage("Analysis complete")
                 self.refresh_view()
@@ -1143,12 +1495,10 @@ class StructuralWindow(QMainWindow):
 
     def apply_prepared_geometry(self):
         setup = self.pending_setup
-        self.patch_list.clear()
-        for patch in self.patches:
-            self.patch_list.addItem(patch.label)
+        self.viewport.selected.clear()
         try:
             if setup:
-                selections = [v.triangles for v in all_supports(setup) if v.kind != "fixed_point"]+[load.triangles for load in setup.loads]
+                selections = [v.triangles for v in all_supports(setup) if v.kind != "fixed_point"]+[load.triangles for load in (*setup.loads, *setup.area_loads)]
                 if setup.beam:
                     selections += [setup.beam.clamp, setup.beam.free_end]
                 for chosen in selections:
@@ -1162,9 +1512,11 @@ class StructuralWindow(QMainWindow):
                         raise ValueError("Surface reconstruction changed; reassign boundaries")
                 for load in point_targets(setup):
                     point_position(self.geometry, load)
+                for load in setup.area_loads:
+                    area_region(self.geometry.points, self.geometry.triangles, load)
                 value = setup.material
-                inputs = StructuralInputs(material=MaterialDefinition(value.name, value.young_modulus, value.poisson_ratio, value.density, value.preset_id),
-                    support_conditions=all_supports(setup), loads=setup.loads, point_loads=setup.point_loads,
+                inputs = StructuralInputs(material=MaterialDefinition(value.name, value.young_modulus, value.poisson_ratio, value.density, value.preset_id, value.yield_strength, value.ultimate_tensile_strength),
+                    support_conditions=all_supports(setup), loads=setup.loads, point_loads=setup.point_loads, area_loads=setup.area_loads,
                     mesh_size=setup.mesh.target_size, feature_angle=setup.mesh.feature_angle, units=setup.units,
                     gravity_enabled=any(setup.gravity), gravity=setup.gravity if any(setup.gravity) else (0., -9.80665, 0.),
                     beam_clamp=setup.beam.clamp if setup.beam else None, beam_free=setup.beam.free_end if setup.beam else None)

@@ -7,11 +7,13 @@
     "geometry_fingerprint": "2c10ae86378feaff6c648caa4a363d2a7a981594da5c71fc25cd87de2d3016c1",
     "units": "m",
     "material": {
-      "young_modulus": 200000000000.0,
-      "poisson_ratio": 0.3,
-      "density": 7900.0,
-      "name": "304 stainless steel",
-      "preset_id": "stainless-304"
+      "young_modulus": 69000000000.0,
+      "poisson_ratio": 0.33,
+      "density": 2700.0,
+      "name": "6061-T6 aluminum",
+      "preset_id": "aluminum-6061-t6",
+      "yield_strength": 240000000.0,
+      "ultimate_tensile_strength": 260000000.0
     },
     "mesh": {
       "target_size": 0.125,
@@ -27,7 +29,7 @@
         "kind": "force",
         "value": [
           0.0,
-          -25.0,
+          -2500000.0,
           0.0
         ],
         "identifier": "4e1f1aa432d54e16b1dab4b60b4fd4ca",
@@ -64,6 +66,7 @@
         "name": "Fixed Face"
       }
     ],
-    "setup_version": 2
+    "area_loads": [],
+    "setup_version": 3
   }
 }

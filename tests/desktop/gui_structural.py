@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 from PySide6.QtCore import Qt, QPoint, QTimer, QSettings
 from PySide6.QtGui import QVector3D
-from PySide6.QtWidgets import QApplication, QButtonGroup
+from PySide6.QtWidgets import QApplication, QButtonGroup, QToolButton
 from PySide6.QtTest import QTest
 
 from tests.structural_helpers import native_box
@@ -43,8 +43,6 @@ def main():
             window = StructuralWindow()
         window.confirm_unsaved = lambda title: True
         window.geometry, window.patches, window.mesh, window.result = geometry, mesh.patches, mesh, result
-        for surface_patch in mesh.patches:
-            window.patch_list.addItem(surface_patch.label)
         window.refresh_view()
         window.show()
         def check():
@@ -53,7 +51,7 @@ def main():
                 assert viewport.isValid(), "A desktop OpenGL context is required"
                 # Click the center ray; picking must select a visible surface patch.
                 QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, pos=QPoint(viewport.width()//2, viewport.height()//2))
-                assert window.patch_list.selectedItems(), "Patch click did not select a surface"
+                assert viewport.selected, "Patch click did not select a surface"
                 window.view_mode.setCurrentText("Stress")
                 frame = viewport.grabFramebuffer()
                 red = 0
@@ -64,7 +62,7 @@ def main():
                 assert red > 100, f"Uniform axial stress did not render red: {red} pixels"
                 output = Path(tempfile.gettempdir())/"simuo-structural-stress.png"
                 assert frame.save(str(output))
-                # Exercise a nonuniform texture field, then a zero field.
+                # Exercise the blue/green/yellow/red texture, then a zero field.
                 result.averaged_von_mises = (mesh.points[:, 0]+.1)*5
                 viewport.refresh()
                 gradient_frame = viewport.grabFramebuffer()
@@ -79,7 +77,7 @@ def main():
                 viewport.refresh()
                 zero = viewport.grabFramebuffer()
                 color = zero.pixelColor(zero.width()//2, zero.height()//2)
-                assert color.green() > 240 and color.red() < 10 and color.blue() < 10
+                assert color.blue() > 240 and color.red() < 10 and color.green() < 10
                 # Drive the point-force workflow through actual visible controls.
                 window.material_section.combo.setCurrentIndex(window.material_section.combo.findData("aluminum-6061-t6"))
                 window.highlight_faces(ends[0])
@@ -128,12 +126,13 @@ def main():
                 wait()
                 assert window.result is not None
                 assert np.isclose(window.result.applied_force[1], -150)
-                window.stress_range.setCurrentIndex(1)
-                window.stress_max.setValue(window.result.averaged_von_mises.max()/2)
+                window.stress_range.setCurrentIndex(window.stress_range.findData("custom"))
+                window.stress_max.setValue(window.result.averaged_von_mises.max()/2e6)
                 window.stress_scale_changed()
                 viewport.grabFramebuffer()
                 assert viewport.saturated > 0
-                window.stress_range.setCurrentIndex(0)
+                window.stress_range.setCurrentIndex(window.stress_range.findData("yield"))
+                assert viewport.maximum == window.state.inputs.material.yield_strength
                 computed_frame = viewport.grabFramebuffer()
                 values = window.result.averaged_von_mises
                 print(f"Computed display field: {values.min():.6g}..{values.max():.6g}; scaled max {viewport.maximum:.6g}", flush=True)
@@ -153,10 +152,61 @@ def main():
                 with patch("simuo.ui.structural_window.QFileDialog.getSaveFileName", return_value=(target, "")), patch("simuo.ui.recent_projects.QSettings", return_value=settings), patch("simuo.ui.recent_projects.thumbnail_path", return_value=Path(directory)/"preview.png"):
                     assert window.save()
                 assert read_project(target).project_type == "structural"
+                # The same Force tool previews and applies a finite footprint.
+                point_load = window.point_loads[0]
+                window.select_load(point_load.identifier)
+                window.tool_mode.setCurrentIndex(window.tool_mode.findData("area"))
+                assert window._load_draft and window.save_load_button.isEnabled()
+                assert viewport.draft_area_load is not None
+                app.processEvents()
+                footprint_frame = viewport.grab().toImage()
+                assert viewport._area_region_cache
+                assert footprint_frame.save("/tmp/simuo-area-preview.png")
+                window.apply_load_draft()
+                assert not window.point_loads and len(window.area_loads) == 1
+                assert window.area_loads[0].identifier == point_load.identifier
+                window.solve()
+                wait()
+                assert np.allclose(window.result.applied_force, point_load.force, atol=1e-8)
+                assert viewport.grabFramebuffer().save("/tmp/simuo-area-stress.png")
+                # Deformation is a view-only transform of the solved displacement.
+                original_triangles = viewport.triangles.copy()
+                original_u = window.result.displacement.copy()
+                original_stress = window.result.averaged_von_mises.copy()
+                camera_before = np.array(viewport.camera.position)
+                dirty_before = window.dirty
+                deformation_button = next(button for button in viewport.findChildren(QToolButton)
+                                          if button.defaultAction() is window.deformation_action)
+                QTest.mouseClick(deformation_button, Qt.MouseButton.LeftButton)
+                assert viewport.deformation_enabled and window.deformed_shape.isChecked()
+                deformed_frame = viewport.grabFramebuffer()
+                assert not deformed_frame.isNull()
+                assert not np.allclose(viewport.triangles, original_triangles)
+                np.testing.assert_allclose(viewport.camera.position, camera_before)
+                expected = viewport.normalized(window.mesh.points+viewport.deformation_scale*original_u)[window.mesh.boundary_triangles]
+                np.testing.assert_allclose(viewport.triangles, expected)
+                selected_before = viewport.selected.copy()
+                QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, pos=QPoint(viewport.width()//2, viewport.height()//2))
+                assert viewport.selected == selected_before
+                assert viewport.pick_surface(viewport.width()/2, viewport.height()/2) is None
+                window.select_item("results")
+                app.processEvents()
+                assert window.grab().save("/tmp/simuo-deformed-shape.png")
+                window.deformation_mode.setCurrentIndex(window.deformation_mode.findData("true"))
+                assert viewport.deformation_scale == 1.
+                window.frame_selected()
+                viewport.grabFramebuffer()
+                window.deformed_shape.setChecked(False)
+                viewport.grabFramebuffer()
+                assert not viewport.deformation_enabled and not window.deformation_action.isChecked()
+                np.testing.assert_array_equal(window.result.displacement, original_u)
+                np.testing.assert_array_equal(window.result.averaged_von_mises, original_stress)
+                np.testing.assert_array_equal(viewport.display_points(), window.mesh.points)
+                assert window.dirty == dirty_before
                 window.select_item("material")
                 app.processEvents()
                 assert window.grab().save(str(Path(tempfile.gettempdir())/"simuo-structural-workspace.png"))
-                print(f"PASS desktop point placement, shared material inspector, mesh/solve, .simuO save and stress rendering; {output}", flush=True)
+                print(f"PASS desktop point/area placement, materials, mesh/solve, .simuO save, stress rendering and deformation preview; {output}", flush=True)
                 # Only the selected startup card may have a red outline.
                 menu = SimuOStartMenu()
                 problems = []

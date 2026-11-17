@@ -12,6 +12,7 @@ class StructuralInputs:
     support_conditions: tuple = ()
     loads: tuple = ()
     point_loads: tuple = ()
+    area_loads: tuple = ()
     mesh_size: float = .05
     feature_angle: float = 40.
     units: str = "m"
